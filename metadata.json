@@ -1,0 +1,6 @@
+{
+  "name": "Pearl Junior School",
+  "description": "Ugandan primary and nursery school management system. Track Student details, Fees in UGX, Teacher Attendance, Leave Plans, and generate Ugandan UNEB-style report cards from Excel assessments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
