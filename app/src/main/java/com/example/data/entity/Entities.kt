@@ -87,3 +87,48 @@ data class SmsLog(
     val dateSent: String,
     val status: String = "Sent"
 ) : Serializable
+
+@Entity(tableName = "timetable_periods")
+data class TimetablePeriod(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val className: String, // e.g. "P.7", "Top"
+    val subjectName: String,
+    val dayOfWeek: String, // "Monday", "Tuesday", etc.
+    val startTime: String, // "08:30"
+    val endTime: String, // "09:30"
+    val teacherName: String
+) : Serializable
+
+@Entity(tableName = "school_events")
+data class SchoolEvent(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val eventDate: String, // "yyyy-MM-dd"
+    val description: String,
+    val audience: String, // "All", "Parents", "Teachers"
+    val priority: String // "High", "Medium", "Low"
+) : Serializable
+
+@Entity(tableName = "app_notifications")
+data class AppNotification(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val content: String,
+    val type: String, // "Event", "Timetable", "Leave", "Grade", "Fees", "Lesson"
+    val timestamp: Long = System.currentTimeMillis(),
+    val read: Boolean = false
+) : Serializable
+
+@Entity(tableName = "lesson_tracks")
+data class LessonTrack(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val timetablePeriodId: Int,
+    val className: String,
+    val subjectName: String,
+    val teacherName: String,
+    val trackDate: String, // "yyyy-MM-dd"
+    val status: String, // "Taught", "Missed", "Substitute Assigned", "Cancelled"
+    val substituteTeacherName: String = "",
+    val notes: String = "",
+    val punctuality: String = "Punctual" // "Punctual", "Late", "N/A"
+) : Serializable

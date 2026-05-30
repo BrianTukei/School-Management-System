@@ -75,4 +75,25 @@ class SchoolRepository(private val schoolDao: SchoolDao) {
     val allSmsLogs: Flow<List<SmsLog>> = schoolDao.getAllSmsLogs()
     suspend fun insertSmsLog(smsLog: SmsLog): Long = schoolDao.insertSmsLog(smsLog)
 
+    // Timetable
+    val allTimetablePeriods: Flow<List<TimetablePeriod>> = schoolDao.getAllTimetablePeriods()
+    suspend fun insertTimetablePeriod(period: TimetablePeriod): Long = schoolDao.insertTimetablePeriod(period)
+    suspend fun deleteTimetablePeriod(id: Int) = schoolDao.deleteTimetablePeriod(id)
+
+    // School Events
+    val allSchoolEvents: Flow<List<SchoolEvent>> = schoolDao.getAllSchoolEvents()
+    suspend fun insertSchoolEvent(event: SchoolEvent): Long = schoolDao.insertSchoolEvent(event)
+    suspend fun deleteSchoolEvent(id: Int) = schoolDao.deleteSchoolEvent(id)
+
+    // App Notifications
+    val allAppNotifications: Flow<List<AppNotification>> = schoolDao.getAllAppNotifications()
+    suspend fun insertAppNotification(notification: AppNotification): Long = schoolDao.insertAppNotification(notification)
+    suspend fun markAllAppNotificationsAsRead() = schoolDao.markAllAppNotificationsAsRead()
+    suspend fun clearAllAppNotifications() = schoolDao.clearAllAppNotifications()
+
+    // Lesson Tracks
+    val allLessonTracks: Flow<List<LessonTrack>> = schoolDao.getAllLessonTracks()
+    suspend fun insertLessonTrack(lessonTrack: LessonTrack): Long = schoolDao.insertLessonTrack(lessonTrack)
+    suspend fun deleteLessonTrack(id: Int) = schoolDao.deleteLessonTrack(id)
+
 }

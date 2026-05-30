@@ -149,4 +149,47 @@ interface SchoolDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSmsLog(smsLog: SmsLog): Long
 
+    // --- Timetable Queries ---
+    @Query("SELECT * FROM timetable_periods ORDER BY className ASC, dayOfWeek ASC, startTime ASC")
+    fun getAllTimetablePeriods(): Flow<List<TimetablePeriod>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTimetablePeriod(period: TimetablePeriod): Long
+
+    @Query("DELETE FROM timetable_periods WHERE id = :id")
+    suspend fun deleteTimetablePeriod(id: Int)
+
+    // --- School Event Queries ---
+    @Query("SELECT * FROM school_events ORDER BY eventDate ASC")
+    fun getAllSchoolEvents(): Flow<List<SchoolEvent>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSchoolEvent(event: SchoolEvent): Long
+
+    @Query("DELETE FROM school_events WHERE id = :id")
+    suspend fun deleteSchoolEvent(id: Int)
+
+    // --- App Notification Queries ---
+    @Query("SELECT * FROM app_notifications ORDER BY timestamp DESC")
+    fun getAllAppNotifications(): Flow<List<AppNotification>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAppNotification(notification: AppNotification): Long
+
+    @Query("UPDATE app_notifications SET read = 1")
+    suspend fun markAllAppNotificationsAsRead()
+
+    @Query("DELETE FROM app_notifications")
+    suspend fun clearAllAppNotifications()
+
+    // --- Lesson Track Queries ---
+    @Query("SELECT * FROM lesson_tracks ORDER BY trackDate DESC")
+    fun getAllLessonTracks(): Flow<List<LessonTrack>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLessonTrack(lessonTrack: LessonTrack): Long
+
+    @Query("DELETE FROM lesson_tracks WHERE id = :id")
+    suspend fun deleteLessonTrack(id: Int)
+
 }

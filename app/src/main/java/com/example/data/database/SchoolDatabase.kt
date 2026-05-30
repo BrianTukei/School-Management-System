@@ -16,9 +16,13 @@ import com.example.data.entity.*
         Grade::class,
         TeacherAttendance::class,
         LeaveRequest::class,
-        SmsLog::class
+        SmsLog::class,
+        TimetablePeriod::class,
+        SchoolEvent::class,
+        AppNotification::class,
+        LessonTrack::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 abstract class SchoolDatabase : RoomDatabase() {
