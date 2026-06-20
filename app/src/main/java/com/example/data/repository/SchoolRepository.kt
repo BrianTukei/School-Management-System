@@ -79,6 +79,7 @@ class SchoolRepository(private val schoolDao: SchoolDao) {
     val allTimetablePeriods: Flow<List<TimetablePeriod>> = schoolDao.getAllTimetablePeriods()
     suspend fun insertTimetablePeriod(period: TimetablePeriod): Long = schoolDao.insertTimetablePeriod(period)
     suspend fun deleteTimetablePeriod(id: Int) = schoolDao.deleteTimetablePeriod(id)
+    suspend fun deleteAllTimetablePeriods() = schoolDao.deleteAllTimetablePeriods()
 
     // School Events
     val allSchoolEvents: Flow<List<SchoolEvent>> = schoolDao.getAllSchoolEvents()
@@ -95,5 +96,24 @@ class SchoolRepository(private val schoolDao: SchoolDao) {
     val allLessonTracks: Flow<List<LessonTrack>> = schoolDao.getAllLessonTracks()
     suspend fun insertLessonTrack(lessonTrack: LessonTrack): Long = schoolDao.insertLessonTrack(lessonTrack)
     suspend fun deleteLessonTrack(id: Int) = schoolDao.deleteLessonTrack(id)
+
+    // Fee Payments
+    val allFeePayments: Flow<List<FeePayment>> = schoolDao.getAllFeePayments()
+    suspend fun insertFeePayment(payment: FeePayment): Long = schoolDao.insertFeePayment(payment)
+    suspend fun deleteFeePayment(id: Int) = schoolDao.deleteFeePayment(id)
+
+    // Library - Books
+    val allBooks: Flow<List<Book>> = schoolDao.getAllBooks()
+    fun getBookById(id: Int): Flow<Book?> = schoolDao.getBookById(id)
+    suspend fun insertBook(book: Book): Long = schoolDao.insertBook(book)
+    suspend fun updateBook(book: Book) = schoolDao.updateBook(book)
+    suspend fun deleteBook(book: Book) = schoolDao.deleteBook(book)
+
+    // Library - Checkouts
+    val allCheckouts: Flow<List<BookCheckout>> = schoolDao.getAllCheckouts()
+    fun getCheckoutsForStudent(studentId: Int): Flow<List<BookCheckout>> = schoolDao.getCheckoutsForStudent(studentId)
+    suspend fun insertCheckout(checkout: BookCheckout): Long = schoolDao.insertCheckout(checkout)
+    suspend fun updateCheckout(checkout: BookCheckout) = schoolDao.updateCheckout(checkout)
+    suspend fun deleteCheckout(checkout: BookCheckout) = schoolDao.deleteCheckout(checkout)
 
 }

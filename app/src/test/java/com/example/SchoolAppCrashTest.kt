@@ -167,4 +167,19 @@ class SchoolAppCrashTest {
         composeTestRule.waitForIdle()
         composeTestRule.onRoot().assertExists()
     }
+
+    @Test
+    fun test_timetable_overlap_detection() {
+        // Overlapping ranges
+        org.junit.Assert.assertTrue(com.example.ui.screens.timesOverlap("08:30 AM", "09:30 AM", "09:00 AM", "10:00 AM"))
+        org.junit.Assert.assertTrue(com.example.ui.screens.timesOverlap("12:00 PM", "01:00 PM", "11:00 AM", "12:30 PM"))
+        
+        // Exact same range
+        org.junit.Assert.assertTrue(com.example.ui.screens.timesOverlap("11:00 AM", "12:00 PM", "11:00 AM", "12:00 PM"))
+
+        // Adjacent ranges (not overlapping)
+        org.junit.Assert.assertFalse(com.example.ui.screens.timesOverlap("08:30 AM", "09:30 AM", "09:30 AM", "10:30 AM"))
+        org.junit.Assert.assertFalse(com.example.ui.screens.timesOverlap("08:30 AM", "09:30 AM", "09:45 AM", "11:00 AM"))
+        org.junit.Assert.assertFalse(com.example.ui.screens.timesOverlap("12:00 PM", "01:00 PM", "01:00 PM", "02:00 PM"))
+    }
 }

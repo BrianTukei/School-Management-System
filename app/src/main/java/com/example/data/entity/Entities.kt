@@ -15,7 +15,10 @@ data class Student(
     val gender: String,
     val feesTotal: Double = 1200.0,
     val feesPaid: Double = 0.0,
-    val status: String = "Active"
+    val status: String = "Active",
+    val dateOfBirth: String = "",
+    val parentName: String = "",
+    val isReportCardPublished: Boolean = false
 ) : Serializable
 
 @Entity(tableName = "teachers")
@@ -37,7 +40,9 @@ data class TeacherAttendance(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val teacherId: Int,
     val date: String, // "yyyy-MM-dd"
-    val status: String // "Present", "Absent", "Late", "On Leave"
+    val status: String, // "Present", "Absent", "Late", "On Leave"
+    val signInTime: String = "",
+    val signOutTime: String = ""
 ) : Serializable
 
 @Entity(tableName = "leave_requests")
@@ -132,3 +137,35 @@ data class LessonTrack(
     val notes: String = "",
     val punctuality: String = "Punctual" // "Punctual", "Late", "N/A"
 ) : Serializable
+
+@Entity(tableName = "fee_payments")
+data class FeePayment(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val studentId: Int,
+    val paymentDate: String, // "yyyy-MM-dd"
+    val amount: Double,
+    val notes: String = ""
+) : Serializable
+
+@Entity(tableName = "books")
+data class Book(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val author: String,
+    val isbn: String = "",
+    val category: String = "General",
+    val copiesTotal: Int = 1,
+    val copiesAvailable: Int = 1
+) : Serializable
+
+@Entity(tableName = "book_checkouts")
+data class BookCheckout(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val bookId: Int,
+    val studentId: Int,
+    val checkoutDate: String, // "yyyy-MM-dd"
+    val dueDate: String, // "yyyy-MM-dd"
+    val returnDate: String? = null, // "yyyy-MM-dd", null if not returned
+    val notes: String = ""
+) : Serializable
+

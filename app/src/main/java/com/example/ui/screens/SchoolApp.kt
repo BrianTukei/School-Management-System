@@ -85,9 +85,12 @@ fun SchoolApp(viewModel: SchoolViewModel) {
         currentRoute == "classes" -> "Class Planner"
         currentRoute == "attendance" -> "Attendance Registrar"
         currentRoute == "grades" -> "Academic Records"
+        currentRoute == "fee_tracking" -> "Finance & Fees Tracker"
+        currentRoute == "library" -> "Library Circulation Hub"
         currentRoute == "ai_assistant" -> "AI Senior Copilot"
         currentRoute == "sms_broadcast" -> "SMS Broadcast Gateway"
         currentRoute == "pupil_monitoring" -> "Pupil Performance & Activity Monitor"
+        currentRoute == "performance_trends" -> "Academic Performance Trends"
         currentRoute == "timetable_planner" -> "Timetable & Events Planner"
         currentRoute == "parent_portal" -> "Parent Secure Portal"
         else -> "Pearl Junior School"
@@ -95,7 +98,7 @@ fun SchoolApp(viewModel: SchoolViewModel) {
 
     val isRootRoute = currentRoute in listOf(
         "dashboard", "students", "teachers", "classes", 
-        "attendance", "grades", "ai_assistant", "sms_broadcast", "pupil_monitoring", "timetable_planner", "parent_portal"
+        "attendance", "grades", "fee_tracking", "ai_assistant", "sms_broadcast", "pupil_monitoring", "performance_trends", "timetable_planner", "parent_portal"
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -256,7 +259,8 @@ fun NavigationMenuContent(
             Triple("students", "Student Directory", Icons.Default.People),
             Triple("teachers", "Faculty Directory", Icons.Default.Person),
             Triple("classes", "Class Planner", Icons.Default.Home),
-            Triple("pupil_monitoring", "Pupil Monitoring", Icons.Default.Analytics)
+            Triple("pupil_monitoring", "Pupil Monitoring", Icons.Default.Analytics),
+            Triple("performance_trends", "Performance Trends", Icons.Default.TrendingUp)
         )
         
         items(coreItems.size) { index ->
@@ -287,7 +291,9 @@ fun NavigationMenuContent(
         val adminItems = listOf(
             Triple("attendance", "Attendance Registrar", Icons.Default.CheckCircle),
             Triple("grades", "Academic Records & Reports", Icons.Default.ListAlt),
-            Triple("timetable_planner", "Timetable & Events Planner", Icons.Default.DateRange)
+            Triple("fee_tracking", "Finance & Fees Tracker", Icons.Default.AccountBalance),
+            Triple("timetable_planner", "Timetable & Events Planner", Icons.Default.DateRange),
+            Triple("library", "Library Circulation Hub", Icons.Default.Book)
         )
 
         items(adminItems.size) { index ->
@@ -681,11 +687,20 @@ fun AppScaffold(
                         composable("pupil_monitoring") {
                             PupilMonitoringScreen(viewModel)
                         }
+                        composable("performance_trends") {
+                            PerformanceTrendsScreen(viewModel)
+                        }
                         composable("timetable_planner") {
                             TimetablePlannerScreen(viewModel)
                         }
                         composable("parent_portal") {
                             ParentPortalScreen(viewModel)
+                        }
+                        composable("fee_tracking") {
+                            FeeTrackingScreen(viewModel)
+                        }
+                        composable("library") {
+                            LibraryScreen(viewModel)
                         }
                     }
                 }
@@ -698,6 +713,7 @@ fun AppScaffold(
                     "teachers",
                     "classes",
                     "pupil_monitoring",
+                    "performance_trends",
                     "attendance",
                     "grades",
                     "sms_broadcast",
@@ -716,6 +732,7 @@ fun AppScaffold(
                         route == "teachers" -> "Faculty"
                         route == "classes" -> "Planner"
                         route == "pupil_monitoring" -> "Monitoring"
+                        route == "performance_trends" -> "Trends"
                         route == "attendance" -> "Attendance"
                         route == "grades" -> "Academic Records"
                         route == "sms_broadcast" -> "SMS Gateway"
@@ -845,6 +862,28 @@ fun AppScaffold(
     }
 }
 
+@Composable
+fun SuggestedBadge(
+    text: String,
+    containerColor: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(containerColor)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = textColor
+        )
+    }
+}
+
 // ==================== DASHBOARD HUB ====================
 @Composable
 fun DashboardScreen(navController: NavController, viewModel: SchoolViewModel) {
@@ -859,10 +898,13 @@ fun DashboardScreen(navController: NavController, viewModel: SchoolViewModel) {
     val leaveRequests by viewModel.leaveRequests.collectAsStateWithLifecycle(emptyList())
     val teachersList by viewModel.teachers.collectAsStateWithLifecycle(emptyList())
     val timetableList by viewModel.timetablePeriods.collectAsStateWithLifecycle(emptyList())
+    val booksList by viewModel.books.collectAsStateWithLifecycle(emptyList())
+    val checkoutsList by viewModel.checkouts.collectAsStateWithLifecycle(emptyList())
 
     val context = LocalContext.current
     var activeSmsTargetStudent by remember { mutableStateOf<Student?>(null) }
     var smsCustomMsgText by remember { mutableStateOf("") }
+    var showSystemSetupHub by remember { mutableStateOf(false) }
     
     var showExcelImportHubDialog by remember { mutableStateOf(false) }
     var importTab by remember { mutableStateOf(0) } // 0: Pupils, 1: Assessments
@@ -1332,6 +1374,37 @@ fun DashboardScreen(navController: NavController, viewModel: SchoolViewModel) {
         )
     }
 
+    // --- School Emblem Logo Config properties ---
+    val logoBase64 by viewModel.schoolLogoBase64.collectAsStateWithLifecycle()
+    val logoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val bytes = inputStream?.readBytes()
+                if (bytes != null) {
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT)
+                    viewModel.saveSchoolLogo(base64)
+                    android.widget.Toast.makeText(context, "School custom crest updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                inputStream?.close()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Logo load failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // --- Firebase sync state variables config ---
+    val (initialUrl, initialToken, initialEnabled) = remember {
+        com.example.data.api.FirebaseService.getFirebaseConfig(context)
+    }
+    var dbUrl by remember { mutableStateOf(initialUrl) }
+    var authToken by remember { mutableStateOf(initialToken) }
+    var syncEnabled by remember { mutableStateOf(initialEnabled) }
+    var isSyncingAll by remember { mutableStateOf(false) }
+    var selectedPlatformTab by remember { mutableStateOf(0) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -1512,6 +1585,163 @@ fun DashboardScreen(navController: NavController, viewModel: SchoolViewModel) {
                                     Text("Remove", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Firebase Cloud Sync Settings Card ---
+        item {
+            val context = LocalContext.current
+            val (initialUrl, initialToken, initialEnabled) = remember {
+                com.example.data.api.FirebaseService.getFirebaseConfig(context)
+            }
+            var dbUrl by remember { mutableStateOf(initialUrl) }
+            var authToken by remember { mutableStateOf(initialToken) }
+            var syncEnabled by remember { mutableStateOf(initialEnabled) }
+            var isSyncingAll by remember { mutableStateOf(false) }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("firebase_sync_card"),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = null,
+                                tint = if (dbUrl.isNotBlank() && syncEnabled) MaterialTheme.colorScheme.primary else Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                "Firebase Cloud Sync Center",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Switch(
+                            checked = syncEnabled,
+                            onCheckedChange = { 
+                                syncEnabled = it
+                                com.example.data.api.FirebaseService.saveFirebaseConfig(context, dbUrl, authToken, it)
+                            },
+                            modifier = Modifier.testTag("firebase_sync_toggle")
+                        )
+                    }
+
+                    Text(
+                        "Synchronize student registration details, fee payment ledgers, and attendance rolls instantly with your Google Firebase Cloud Firestore database for real-time online syncing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = dbUrl,
+                        onValueChange = { dbUrl = it.trim() },
+                        label = { Text("Firebase Project ID (for Firestore)") },
+                        placeholder = { Text("e.g., pearl-junior-school-db") },
+                        leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth().testTag("firebase_db_url_input"),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium
+                    )
+
+                    OutlinedTextField(
+                        value = authToken,
+                        onValueChange = { authToken = it.trim() },
+                        label = { Text("Firebase API Key (Optional)") },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth().testTag("firebase_token_input"),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                com.example.data.api.FirebaseService.saveFirebaseConfig(context, dbUrl, authToken, syncEnabled)
+                                android.widget.Toast.makeText(context, "Firebase configuration saved successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f).testTag("save_firebase_config_button")
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save Database")
+                        }
+
+                        if (dbUrl.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    isSyncingAll = true
+                                    viewModel.syncAllStudentsToFirebase { success ->
+                                        isSyncingAll = false
+                                        if (success) {
+                                            android.widget.Toast.makeText(context, "All database records synchronized with Firebase!", android.widget.Toast.LENGTH_LONG).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Sync completed with some connection anomalies. Verify your Firebase setup.", android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                enabled = !isSyncingAll,
+                                modifier = Modifier.weight(1.2f).testTag("bulk_sync_firebase_button")
+                            ) {
+                                if (isSyncingAll) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.dp)
+                                } else {
+                                    Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Bulk Sync")
+                            }
+                        }
+                    }
+
+                    if (dbUrl.isBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
+                            Text(
+                                "Database URL empty: Syncing suspended.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    } else if (syncEnabled) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(14.dp))
+                            Text(
+                                "Real-time auto-synchronization enabled.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF2E7D32),
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -1787,6 +2017,47 @@ fun DashboardScreen(navController: NavController, viewModel: SchoolViewModel) {
                         }
                     }
                 }
+            }
+        }
+
+        // Library Circulation & Books
+        item {
+            val totalBooks = booksList.sumOf { it.copiesTotal }
+            val activeLoans = checkoutsList.count { it.returnDate == null }
+            val overdueCount = checkoutsList.count { loan ->
+                if (loan.returnDate != null) return@count false
+                try {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    val due = sdf.parse(loan.dueDate) ?: java.util.Date()
+                    val today = sdf.parse(sdf.format(java.util.Date())) ?: java.util.Date()
+                    due.before(today)
+                } catch (e: Exception) {
+                    false
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { navController.navigate("library") }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MetricCard(
+                    title = "Library Catalog",
+                    value = "$totalBooks Copies",
+                    icon = Icons.Default.Book,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                MetricCard(
+                    title = "Active Circulations",
+                    value = if (overdueCount > 0) "$activeLoans Loans ($overdueCount Overdue!!)" else "$activeLoans Active",
+                    icon = Icons.Default.SwapCalls,
+                    color = if (overdueCount > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
@@ -3156,6 +3427,7 @@ fun StudentItemCard(student: Student, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: SchoolViewModel) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf("") }
     var rollNumber by remember { mutableStateOf("") }
     var gradeLevel by remember { mutableStateOf("Primary Seven (P.7)") }
@@ -3165,7 +3437,9 @@ fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: S
     var feesTotal by remember { mutableStateOf("850000.0") }
     var feesPaid by remember { mutableStateOf("0.0") }
     var status by remember { mutableStateOf("Active") }
-
+    var dateOfBirth by remember { mutableStateOf("") }
+    var parentName by remember { mutableStateOf("") }
+ 
     LaunchedEffect(studentId) {
         if (studentId != 0) {
             viewModel.getStudentProfile(studentId).first()?.let { s ->
@@ -3178,12 +3452,18 @@ fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: S
                 feesTotal = s.feesTotal.toString()
                 feesPaid = s.feesPaid.toString()
                 status = s.status
+                dateOfBirth = s.dateOfBirth
+                parentName = s.parentName
             }
         }
     }
 
     var nameError by remember { mutableStateOf<String?>(null) }
     var rollError by remember { mutableStateOf<String?>(null) }
+    var dobError by remember { mutableStateOf<String?>(null) }
+    var parentNameError by remember { mutableStateOf<String?>(null) }
+    var parentPhoneError by remember { mutableStateOf<String?>(null) }
+    var parentEmailError by remember { mutableStateOf<String?>(null) }
 
     val gradeOptions = listOf(
         "Nursery",
@@ -3200,6 +3480,35 @@ fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: S
     val genderOptions = listOf("Male", "Female")
     val statusOptions = listOf("Active", "Inactive")
 
+    fun getInitials(nameText: String): String {
+        if (nameText.isBlank()) return "👤"
+        val parts = nameText.trim().split(" ").filter { it.isNotBlank() }
+        if (parts.isEmpty()) return "👤"
+        return if (parts.size >= 2) {
+            (parts[0].take(1) + parts[1].take(1)).uppercase()
+        } else {
+            parts[0].take(2).uppercase()
+        }
+    }
+
+    fun calculateAge(dobText: String): String {
+        if (dobText.isBlank()) return "Not specified"
+        val cleanDob = dobText.trim()
+        val parts = cleanDob.split("-")
+        if (parts.size != 3) return "Required format: YYYY-MM-DD"
+        val year = parts[0].toIntOrNull() ?: return "Invalid year value"
+        val month = parts[1].toIntOrNull() ?: return "Invalid month value"
+        val day = parts[2].toIntOrNull() ?: return "Invalid day value"
+        
+        if (year < 1920 || year > 2026) return "Year must be 1920 - 2026"
+        if (month < 1 || month > 12) return "Month must be 01 - 12"
+        if (day < 1 || day > 31) return "Day must be 01 - 31"
+        
+        val currentYear = 2026
+        val calculatedAge = currentYear - year
+        return if (calculatedAge < 0) "Invalid DOB" else "$calculatedAge yrs old"
+    }
+
     Scaffold { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -3209,188 +3518,174 @@ fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: S
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Text(
-                    text = if (studentId == 0) "Register New Student" else "Update Academic Profile",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            item {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it; nameError = null },
-                    label = { Text("Student Full Name") },
-                    isError = nameError != null,
-                    supportingText = { nameError?.let { Text(it) } },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("student_form_name"),
-                    singleLine = true
-                )
-            }
-
-            item {
-                OutlinedTextField(
-                    value = rollNumber,
-                    onValueChange = { rollNumber = it; rollError = null },
-                    label = { Text("Roll ID (e.g. S108)") },
-                    isError = rollError != null,
-                    supportingText = { rollError?.let { Text(it) } },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("student_form_roll"),
-                    singleLine = true
-                )
-            }
-
-            item {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    // Grade Level Group
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Expected Grade", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        var expanded by remember { mutableStateOf(false) }
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = gradeLevel,
-                                onValueChange = {},
-                                readOnly = true,
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable { expanded = !expanded }
-                            )
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false }
-                            ) {
-                                gradeOptions.forEach { opt ->
-                                    DropdownMenuItem(
-                                        text = { Text(opt) },
-                                        onClick = { gradeLevel = opt; expanded = false }
-                                    )
-                                }
-                            }
-                        }
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
-
-                    // Gender Group
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Gender", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        var expanded by remember { mutableStateOf(false) }
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = gender,
-                                onValueChange = {},
-                                readOnly = true,
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable { expanded = !expanded }
-                            )
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false }
-                            ) {
-                                genderOptions.forEach { opt ->
-                                    DropdownMenuItem(
-                                        text = { Text(opt) },
-                                        onClick = { gender = opt; expanded = false }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Primary Contact Email") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            }
-
-            item {
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Contact Phone") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Fees Total
-                    OutlinedTextField(
-                        value = feesTotal,
-                        onValueChange = { feesTotal = it },
-                        label = { Text("Total Term Fee (UGX)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    // Fees Paid
-                    OutlinedTextField(
-                        value = feesPaid,
-                        onValueChange = { feesPaid = it },
-                        label = { Text("Amount Paid (UGX)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            if (studentId != 0) {
-                item {
                     Column {
-                        Text("Registration Status", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        var expanded by remember { mutableStateOf(false) }
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = status,
-                                onValueChange = {},
-                                readOnly = true,
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable { expanded = !expanded }
-                            )
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false }
+                        Text(
+                            text = if (studentId == 0) "Register New Student" else "Update Academic Profile",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (studentId == 0) "Establish a new pupil profile in the academic registry" else "Amend current registration information and details",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Live Virtual ID Preview Card
+            item {
+                val isMale = gender == "Male"
+                val gradientBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = if (isMale) {
+                        listOf(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                        )
+                    } else {
+                        listOf(
+                            Color(0xFFFFD1DC).copy(alpha = 0.85f),
+                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+                        )
+                    }
+                )
+                
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("student_form_preview_badge"),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(gradientBrush)
+                            .padding(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                statusOptions.forEach { opt ->
-                                    DropdownMenuItem(
-                                        text = { Text(opt) },
-                                        onClick = { status = opt; expanded = false }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.School,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "PEARL JUNIOR SCHOOL REGISTRY",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                Surface(
+                                    color = if (status == "Active") Color(0xFF2E7D32) else Color(0xFFC62828),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = status.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                                        .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = getInitials(name),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Black,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = if (name.isBlank()) "Enter Full Name..." else name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = gradeLevel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        
+                                        Text(
+                                            text = "Roll ID: ${if (rollNumber.isBlank()) "TBD" else rollNumber}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text("DATE OF BIRTH", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                                    Text(
+                                        text = if (dateOfBirth.isBlank()) "Unspecified" else "$dateOfBirth (${calculateAge(dateOfBirth)})",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("PARENT / GUARDIAN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                                    Text(
+                                        text = if (parentName.isBlank()) "Unspecified" else parentName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
@@ -3399,31 +3694,488 @@ fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: S
                 }
             }
 
+            // Section 1: Basic Information
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Student Personal Credentials", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it; nameError = null },
+                            label = { Text("Student Full Name *") },
+                            placeholder = { Text("e.g. Liam Sempijja") },
+                            isError = nameError != null,
+                            supportingText = { nameError?.let { Text(it) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("student_form_name"),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        
+                        Column {
+                            Text("Gender Selector *", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf("Male", "Female").forEach { gOpt ->
+                                    val isSelected = gender == gOpt
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { gender = gOpt },
+                                        label = { Text(gOpt) },
+                                        leadingIcon = {
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = if (gOpt == "Male") MaterialTheme.colorScheme.primaryContainer else Color(0xFFFFD1DC)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        
+                        OutlinedTextField(
+                            value = dateOfBirth,
+                            onValueChange = { dateOfBirth = it; dobError = null },
+                            label = { Text("Date of Birth (YYYY-MM-DD) *") },
+                            placeholder = { Text("e.g. 2012-10-24") },
+                            leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                            isError = dobError != null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("student_form_dob"),
+                            singleLine = true,
+                            supportingText = {
+                                if (dobError != null) {
+                                    Text(dobError!!, color = MaterialTheme.colorScheme.error)
+                                } else {
+                                    Text(
+                                        text = if (dateOfBirth.isBlank()) "Mandatory field format: YYYY-MM-DD" else "Age metric: ${calculateAge(dateOfBirth)}"
+                                    )
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // Section 2: Academic Setup & ID Registry
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Academic Assignment & Registry", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Column {
+                            Text("Class Assignment *", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(gradeOptions) { opt ->
+                                    val isSelected = gradeLevel == opt
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { gradeLevel = opt },
+                                        label = { Text(opt, fontSize = 11.sp, fontWeight = FontWeight.Medium) }
+                                    )
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(6.dp))
+                            
+                            var expanded by remember { mutableStateOf(false) }
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = gradeLevel,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Selected Class Level") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { expanded = !expanded }
+                                )
+                                DropdownMenu(
+                                    expanded = expanded,
+                                    onDismissRequest = { expanded = false }
+                                ) {
+                                    gradeOptions.forEach { opt ->
+                                        DropdownMenuItem(
+                                            text = { Text(opt) },
+                                            onClick = { gradeLevel = opt; expanded = false }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = rollNumber,
+                                onValueChange = { rollNumber = it; rollError = null },
+                                label = { Text("Roll ID / Access Key *") },
+                                placeholder = { Text("e.g. S108") },
+                                isError = rollError != null,
+                                supportingText = { rollError?.let { Text(it) } },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("student_form_roll"),
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            
+                            Button(
+                                onClick = {
+                                    val initials = if (name.isNotBlank()) {
+                                        name.trim().split(" ").take(2).map { it.take(1) }.joinToString("").uppercase()
+                                    } else "ST"
+                                    val prefix = gradeLevel.replace(".", "").take(3).uppercase()
+                                    val randomSuffix = (100..999).random()
+                                    rollNumber = "$prefix-$initials-$randomSuffix"
+                                    rollError = null
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.padding(top = 4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Auto", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        if (studentId != 0) {
+                            Column {
+                                Text("Registration Status", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                var expandedStatus by remember { mutableStateOf(false) }
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = status,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedStatus) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .clickable { expandedStatus = !expandedStatus }
+                                    )
+                                    DropdownMenu(
+                                        expanded = expandedStatus,
+                                        onDismissRequest = { expandedStatus = false }
+                                    ) {
+                                        statusOptions.forEach { opt ->
+                                            DropdownMenuItem(
+                                                text = { Text(opt) },
+                                                onClick = { status = opt; expandedStatus = false }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 3: Parent & Contact Information
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Phone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Parent / Guardian Contact details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        OutlinedTextField(
+                            value = parentName,
+                            onValueChange = { parentName = it; parentNameError = null },
+                            label = { Text("Parent / Guardian Full Name *") },
+                            placeholder = { Text("e.g. Richard Sempijja") },
+                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                            isError = parentNameError != null,
+                            supportingText = { parentNameError?.let { Text(it) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("student_form_parent_name"),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = { phone = it; parentPhoneError = null },
+                            label = { Text("Parent Contact Phone *") },
+                            placeholder = { Text("e.g. +256 701 234567") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                            isError = parentPhoneError != null,
+                            supportingText = { parentPhoneError?.let { Text(it) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("student_form_parent_phone"),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it; parentEmailError = null },
+                            label = { Text("Parent Contact Email *") },
+                            placeholder = { Text("e.g. richard@example.com") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            isError = parentEmailError != null,
+                            supportingText = { parentEmailError?.let { Text(it) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("student_form_parent_email"),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // Section 4: Finance & Tuition Fees
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Payments, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Tuition & School Fees", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = feesTotal,
+                                onValueChange = { feesTotal = it },
+                                label = { Text("Total Term Fee (UGX)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            
+                            OutlinedTextField(
+                                value = feesPaid,
+                                onValueChange = { feesPaid = it },
+                                label = { Text("Amount Paid (UGX)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                        
+                        Column {
+                            Text("Tuition Quick Presets:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                val parsedTotal = feesTotal.toDoubleOrNull() ?: 0.0
+                                
+                                AssistChip(
+                                    onClick = { feesPaid = "0.0" },
+                                    label = { Text("Unpaid (0%)") }
+                                )
+                                
+                                AssistChip(
+                                    onClick = { feesPaid = (parsedTotal / 2.0).toString() },
+                                    label = { Text("Half (50%)") }
+                                )
+                                
+                                AssistChip(
+                                    onClick = { feesPaid = parsedTotal.toString() },
+                                    label = { Text("Full (100%)") }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Save / Cancel Actions
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp),
+                        .padding(top = 16.dp, bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
                         onClick = { navController.navigateUp() },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Cancel")
                     }
 
                     Button(
                         onClick = {
+                            var hasError = false
+                            
                             if (name.isBlank()) {
                                 nameError = "Name cannot be left empty."
-                                return@Button
+                                hasError = true
+                            } else {
+                                nameError = null
                             }
+                            
                             if (rollNumber.isBlank()) {
                                 rollError = "Roll ID cannot be left empty."
+                                hasError = true
+                            } else {
+                                rollError = null
+                            }
+                            
+                            // Date of Birth validation
+                            if (dateOfBirth.isBlank()) {
+                                dobError = "Date of Birth cannot be left empty."
+                                hasError = true
+                            } else {
+                                val dobRegex = Regex("^\\d{4}-\\d{2}-\\d{2}$")
+                                if (!dobRegex.matches(dateOfBirth.trim())) {
+                                    dobError = "Please enter in YYYY-MM-DD format."
+                                    hasError = true
+                                } else {
+                                    val parts = dateOfBirth.trim().split("-")
+                                    val year = parts[0].toIntOrNull()
+                                    val month = parts[1].toIntOrNull()
+                                    val day = parts[2].toIntOrNull()
+                                    
+                                    if (year == null || month == null || day == null ||
+                                        year < 1920 || year > 2026 ||
+                                        month < 1 || month > 12 ||
+                                        day < 1 || day > 31) {
+                                        dobError = "Invalid Date of Birth details."
+                                        hasError = true
+                                    } else {
+                                        dobError = null
+                                    }
+                                }
+                            }
+                            
+                            // Parent/Guardian Name validation
+                            if (parentName.isBlank()) {
+                                parentNameError = "Parent name cannot be left empty."
+                                hasError = true
+                            } else {
+                                parentNameError = null
+                            }
+                            
+                            // Parent Contact Phone validation
+                            if (phone.isBlank()) {
+                                parentPhoneError = "Phone number cannot be left empty."
+                                hasError = true
+                            } else {
+                                val phoneRegex = Regex("^\\+?[0-9\\s\\-\\(\\)]{8,15}$")
+                                if (!phoneRegex.matches(phone.trim())) {
+                                    parentPhoneError = "Invalid format (needs at least 8 digits)."
+                                    hasError = true
+                                } else {
+                                    parentPhoneError = null
+                                }
+                            }
+                            
+                            // Parent Contact Email validation
+                            if (email.isBlank()) {
+                                parentEmailError = "Email cannot be left empty."
+                                hasError = true
+                            } else {
+                                val emailRegex = Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\$")
+                                if (!emailRegex.matches(email.trim())) {
+                                    parentEmailError = "Please enter a valid email address."
+                                    hasError = true
+                                } else {
+                                    parentEmailError = null
+                                }
+                            }
+                            
+                            if (hasError) {
+                                android.widget.Toast.makeText(context, "Form validation failed. Please check highlighted errors.", android.widget.Toast.LENGTH_LONG).show()
                                 return@Button
                             }
-                            // Call save
+                            
                             val st = Student(
                                 id = studentId,
                                 name = name,
@@ -3432,16 +4184,22 @@ fun StudentFormScreen(studentId: Int, navController: NavController, viewModel: S
                                 email = email,
                                 phone = phone,
                                 gender = gender,
-                                feesTotal = feesTotal.toDoubleOrNull() ?: 1500.0,
+                                feesTotal = feesTotal.toDoubleOrNull() ?: 850000.0,
                                 feesPaid = feesPaid.toDoubleOrNull() ?: 0.0,
-                                status = status
+                                status = status,
+                                dateOfBirth = dateOfBirth,
+                                parentName = parentName
                             )
                             viewModel.saveStudent(st)
+                            val isUpdate = studentId != 0
+                            val successMsg = if (isUpdate) "Student profile updated successfully!" else "Student successfully enrolled!"
+                            android.widget.Toast.makeText(context, successMsg, android.widget.Toast.LENGTH_SHORT).show()
                             navController.navigateUp()
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .testTag("student_form_save")
+                            .testTag("student_form_save"),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Save Profile")
                     }
@@ -3884,6 +4642,8 @@ fun TeachersListScreen(navController: NavController, viewModel: SchoolViewModel)
     val teacherAttendanceDate by viewModel.teacherAttendanceDate.collectAsStateWithLifecycle()
     val teacherAttendanceMap by viewModel.teacherAttendanceEditingMap.collectAsStateWithLifecycle()
     val activeAttendanceRecord by viewModel.activeTeacherAttendanceRecord.collectAsStateWithLifecycle()
+    val teacherSignInMap by viewModel.teacherSignInTimesMap.collectAsStateWithLifecycle()
+    val teacherSignOutMap by viewModel.teacherSignOutTimesMap.collectAsStateWithLifecycle()
 
     var activeTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
@@ -3906,6 +4666,22 @@ fun TeachersListScreen(navController: NavController, viewModel: SchoolViewModel)
     var leaveReason by remember { mutableStateOf("") }
     var leaveType by remember { mutableStateOf("Sick Leave") }
     val leaveTypes = listOf("Sick Leave", "Casual Leave", "Annual Leave", "Maternity/Paternity", "Other")
+
+    val allTeacherAttendanceList by viewModel.teacherAttendanceList.collectAsStateWithLifecycle()
+    var attendanceSubMode by remember { mutableStateOf(0) } // 0 = Daily Register, 1 = Monthly Report
+    var selectedReportYear by remember { mutableStateOf(2026) }
+    var selectedReportMonthIndex by remember { mutableStateOf(5) } // Default to June (index 5)
+    val monthsNames = remember {
+        listOf(
+            "January", "February", "March", "April", "May", "June", 
+            "July", "August", "September", "October", "November", "December"
+        )
+    }
+    val yearsList = listOf(2025, 2026, 2027)
+
+    // Editing dialog states
+    var selectedCellForEdit by remember { mutableStateOf<Triple<Int, String, String>?>(null) } // (teacherId, dateString, currentStatus)
+    var showSummaryReportDialog by remember { mutableStateOf(false) }
 
     val filteredList = teachersList.filter { teacher ->
         teacher.name.contains(searchQuery, ignoreCase = true) ||
@@ -4175,189 +4951,607 @@ fun TeachersListScreen(navController: NavController, viewModel: SchoolViewModel)
                     }
                 }
                 1 -> {
-                    // ATTENDANCE TAB
+                    // ATTENDANCE TAB WITH DUAL DAILY LOG & MONTHLY REPORT MODES
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        // Submode Selector Switcher (Daily Log vs Monthly Reports)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            OutlinedTextField(
-                                value = teacherAttendanceDate,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Log attendance date") },
-                                modifier = Modifier.weight(1f),
-                                trailingIcon = {
-                                    IconButton(onClick = {
-                                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-                                        val parsed = try { sdf.parse(teacherAttendanceDate) ?: java.util.Date() } catch(e: Exception) { java.util.Date() }
-                                        val cal = java.util.Calendar.getInstance().apply { time = parsed }
-                                        android.app.DatePickerDialog(
-                                            context,
-                                            { _: android.widget.DatePicker, y: Int, m: Int, d: Int ->
-                                                val newCal = java.util.Calendar.getInstance().apply { set(y, m, d) }
-                                                viewModel.setTeacherAttendanceDate(sdf.format(newCal.time))
-                                            },
-                                            cal.get(java.util.Calendar.YEAR),
-                                            cal.get(java.util.Calendar.MONTH),
-                                            cal.get(java.util.Calendar.DAY_OF_MONTH)
-                                        ).show()
-                                    }) {
-                                        Icon(Icons.Default.DateRange, contentDescription = "Pick Date")
-                                    }
-                                }
-                            )
-
                             Button(
-                                onClick = { 
-                                    viewModel.saveTeacherAttendance()
-                                    android.widget.Toast.makeText(context, "Attendance saved successfully!", android.widget.Toast.LENGTH_SHORT).show()
-                                },
-                                shape = RoundedCornerShape(12.dp)
+                                onClick = { attendanceSubMode = 0 },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (attendanceSubMode == 0) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (attendanceSubMode == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(vertical = 8.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Text("Submit Ledger")
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Text("Daily Ledger", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                }
+                            }
+
+                            Button(
+                                onClick = { attendanceSubMode = 1 },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (attendanceSubMode == 1) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    contentColor = if (attendanceSubMode == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(vertical = 8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(Icons.Default.ListAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Text("Monthly Reports", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
                                 }
                             }
                         }
 
-                        val loggedPresent = activeAttendanceRecord.count { it.status == "Present" }
-                        val loggedAbsent = activeAttendanceRecord.count { it.status == "Absent" }
-                        val loggedLate = activeAttendanceRecord.count { it.status == "Late" }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                                shape = RoundedCornerShape(12.dp)
+                        if (attendanceSubMode == 0) {
+                            // DAILY RECORDING LEDGER
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF2E7D32)))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Present: $loggedPresent", style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFC62828)))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Absent: $loggedAbsent", style = MaterialTheme.typography.bodySmall, color = Color(0xFFC62828), fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFE65100)))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Late: $loggedLate", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+                                OutlinedTextField(
+                                    value = teacherAttendanceDate,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Log attendance date") },
+                                    modifier = Modifier.weight(1f),
+                                    trailingIcon = {
+                                        IconButton(onClick = {
+                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                                            val parsed = try { sdf.parse(teacherAttendanceDate) ?: java.util.Date() } catch(e: Exception) { java.util.Date() }
+                                            val cal = java.util.Calendar.getInstance().apply { time = parsed }
+                                            android.app.DatePickerDialog(
+                                                context,
+                                                { _: android.widget.DatePicker, y: Int, m: Int, d: Int ->
+                                                    val newCal = java.util.Calendar.getInstance().apply { set(y, m, d) }
+                                                    viewModel.setTeacherAttendanceDate(sdf.format(newCal.time))
+                                                },
+                                                cal.get(java.util.Calendar.YEAR),
+                                                cal.get(java.util.Calendar.MONTH),
+                                                cal.get(java.util.Calendar.DAY_OF_MONTH)
+                                            ).show()
+                                        }) {
+                                            Icon(Icons.Default.DateRange, contentDescription = "Pick Date")
+                                        }
+                                    }
+                                )
 
-                        if (teachersList.isEmpty()) {
-                            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                Text("No employees available to record attendance")
+                                Button(
+                                    onClick = { 
+                                        viewModel.saveTeacherAttendance()
+                                        android.widget.Toast.makeText(context, "Attendance saved successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Text("Submit Ledger")
+                                    }
+                                }
                             }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+
+                            val loggedPresent = activeAttendanceRecord.count { it.status == "Present" }
+                            val loggedAbsent = activeAttendanceRecord.count { it.status == "Absent" }
+                            val loggedLate = activeAttendanceRecord.count { it.status == "Late" }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(teachersList) { teacher ->
-                                    val currentStatus = teacherAttendanceMap[teacher.id] ?: "Present"
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                                    ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column {
-                                                    Text(teacher.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                                    Text(teacher.assignedRole, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                                                }
-                                                
-                                                Surface(
-                                                    color = when (currentStatus) {
-                                                        "Present" -> Color(0xFFE8F5E9)
-                                                        "Absent" -> Color(0xFFFFEBEE)
-                                                        "Late" -> Color(0xFFFFF3E0)
-                                                        else -> Color(0xFFE3F2FD)
-                                                    },
-                                                    shape = RoundedCornerShape(8.dp)
+                                Card(
+                                    modifier = Modifier.weight(1f),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF2E7D32)))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Present: $loggedPresent", style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Card(
+                                    modifier = Modifier.weight(1f),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFC62828)))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Absent: $loggedAbsent", style = MaterialTheme.typography.bodySmall, color = Color(0xFFC62828), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                Card(
+                                    modifier = Modifier.weight(1f),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFE65100)))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Late: $loggedLate", style = MaterialTheme.typography.bodySmall, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            if (teachersList.isEmpty()) {
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    Text("No employees available to record attendance")
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(teachersList) { teacher ->
+                                        val currentStatus = teacherAttendanceMap[teacher.id] ?: "Present"
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text(
-                                                        text = currentStatus,
-                                                        fontWeight = FontWeight.Bold,
+                                                    Column {
+                                                        Text(teacher.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                                        Text(teacher.assignedRole, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                                    }
+                                                    
+                                                    Surface(
                                                         color = when (currentStatus) {
+                                                            "Present" -> Color(0xFFE8F5E9)
+                                                            "Absent" -> Color(0xFFFFEBEE)
+                                                            "Late" -> Color(0xFFFFF3E0)
+                                                            else -> Color(0xFFE3F2FD)
+                                                        },
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = currentStatus,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = when (currentStatus) {
+                                                                "Present" -> Color(0xFF2E7D32)
+                                                                "Absent" -> Color(0xFFC62828)
+                                                                "Late" -> Color(0xFFE65100)
+                                                                else -> Color(0xFF1565C0)
+                                                            },
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.height(12.dp))
+
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    val statuses = listOf("Present", "Absent", "Late", "On Leave")
+                                                    statuses.forEach { st ->
+                                                        val isSelected = currentStatus == st
+                                                        val statusBtnColor = when (st) {
                                                             "Present" -> Color(0xFF2E7D32)
                                                             "Absent" -> Color(0xFFC62828)
                                                             "Late" -> Color(0xFFE65100)
                                                             else -> Color(0xFF1565C0)
-                                                        },
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                            }
-
-                                            Spacer(modifier = Modifier.height(12.dp))
-
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                val statuses = listOf("Present", "Absent", "Late", "On Leave")
-                                                statuses.forEach { st ->
-                                                    val isSelected = currentStatus == st
-                                                    val statusBtnColor = when (st) {
-                                                        "Present" -> Color(0xFF2E7D32)
-                                                        "Absent" -> Color(0xFFC62828)
-                                                        "Late" -> Color(0xFFE65100)
-                                                        else -> Color(0xFF1565C0)
+                                                        }
+                                                        OutlinedButton(
+                                                            onClick = { viewModel.updateTeacherAttendanceStatus(teacher.id, st) },
+                                                            colors = if (isSelected) ButtonDefaults.outlinedButtonColors(
+                                                                containerColor = statusBtnColor.copy(alpha = 0.12f)
+                                                            ) else ButtonDefaults.outlinedButtonColors(),
+                                                            border = androidx.compose.foundation.BorderStroke(
+                                                                width = if (isSelected) 2.dp else 1.dp,
+                                                                color = if (isSelected) statusBtnColor else MaterialTheme.colorScheme.outline
+                                                            ),
+                                                            modifier = Modifier.weight(1f),
+                                                            shape = RoundedCornerShape(12.dp),
+                                                            contentPadding = PaddingValues(0.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = st,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                color = if (isSelected) statusBtnColor else MaterialTheme.colorScheme.onSurface
+                                                            )
+                                                        }
                                                     }
-                                                    OutlinedButton(
-                                                        onClick = { viewModel.updateTeacherAttendanceStatus(teacher.id, st) },
-                                                        colors = if (isSelected) ButtonDefaults.outlinedButtonColors(
-                                                            containerColor = statusBtnColor.copy(alpha = 0.12f)
-                                                        ) else ButtonDefaults.outlinedButtonColors(),
-                                                        border = androidx.compose.foundation.BorderStroke(
-                                                            width = if (isSelected) 2.dp else 1.dp,
-                                                            color = if (isSelected) statusBtnColor else MaterialTheme.colorScheme.outline
-                                                        ),
-                                                        modifier = Modifier.weight(1f),
-                                                        shape = RoundedCornerShape(12.dp),
-                                                        contentPadding = PaddingValues(0.dp)
+                                                }
+
+                                                // Sign-In/Out row
+                                                if (currentStatus == "Present" || currentStatus == "Late") {
+                                                    Spacer(modifier = Modifier.height(10.dp))
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Text(
-                                                            text = st,
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                            color = if (isSelected) statusBtnColor else MaterialTheme.colorScheme.onSurface
+                                                        val currentSignIn = teacherSignInMap[teacher.id] ?: ""
+                                                        val currentSignOut = teacherSignOutMap[teacher.id] ?: ""
+
+                                                        OutlinedTextField(
+                                                            value = currentSignIn,
+                                                            onValueChange = { viewModel.updateTeacherSignInTime(teacher.id, it) },
+                                                            label = { Text("Sign-In Time", style = MaterialTheme.typography.bodySmall) },
+                                                            placeholder = { Text("08:00 AM") },
+                                                            leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                                            modifier = Modifier.weight(1f),
+                                                            singleLine = true,
+                                                            textStyle = MaterialTheme.typography.bodySmall,
+                                                            trailingIcon = {
+                                                                IconButton(onClick = {
+                                                                    val timeString = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                                                                    viewModel.updateTeacherSignInTime(teacher.id, timeString)
+                                                                 }) {
+                                                                    Icon(Icons.Default.Check, contentDescription = "Now", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                                                }
+                                                            }
+                                                        )
+
+                                                        OutlinedTextField(
+                                                            value = currentSignOut,
+                                                            onValueChange = { viewModel.updateTeacherSignOutTime(teacher.id, it) },
+                                                            label = { Text("Sign-Out Time", style = MaterialTheme.typography.bodySmall) },
+                                                            placeholder = { Text("05:00 PM") },
+                                                            modifier = Modifier.weight(1f),
+                                                            singleLine = true,
+                                                            textStyle = MaterialTheme.typography.bodySmall,
+                                                            trailingIcon = {
+                                                                IconButton(onClick = {
+                                                                    val timeString = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                                                                    viewModel.updateTeacherSignOutTime(teacher.id, timeString)
+                                                                }) {
+                                                                    Icon(Icons.Default.Check, contentDescription = "Now", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                                                }
+                                                            }
                                                         )
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // MONTHLY LOGS REPORTING VIEW
+                            val maxDaysInMonth = remember(selectedReportYear, selectedReportMonthIndex) {
+                                val cal = java.util.Calendar.getInstance()
+                                cal.set(java.util.Calendar.YEAR, selectedReportYear)
+                                cal.set(java.util.Calendar.MONTH, selectedReportMonthIndex)
+                                cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+                            }
+
+                            val datesInMonth = remember(selectedReportYear, selectedReportMonthIndex, maxDaysInMonth) {
+                                (1..maxDaysInMonth).map { day ->
+                                    String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedReportYear, selectedReportMonthIndex + 1, day)
+                                }
+                            }
+
+                            val monthlyAttendanceRecords = remember(allTeacherAttendanceList, selectedReportYear, selectedReportMonthIndex) {
+                                val prefix = String.format(java.util.Locale.US, "%04d-%02d", selectedReportYear, selectedReportMonthIndex + 1)
+                                allTeacherAttendanceList.filter { it.date.startsWith(prefix) }
+                            }
+
+                            // Horizontal Months list selector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                monthsNames.forEachIndexed { idx, mName ->
+                                    val isSelected = selectedReportMonthIndex == idx
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedReportMonthIndex = idx },
+                                        label = { Text(mName, fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+
+                            // Year and Title header
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Monthly Staff Calendar Grid",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                // Year selector dropdown
+                                var yearExpanded by remember { mutableStateOf(false) }
+                                Box {
+                                    OutlinedButton(
+                                        onClick = { yearExpanded = true },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(36.dp)
+                                    ) {
+                                        Text(selectedReportYear.toString(), style = MaterialTheme.typography.bodySmall)
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    }
+                                    DropdownMenu(
+                                        expanded = yearExpanded,
+                                        onDismissRequest = { yearExpanded = false }
+                                    ) {
+                                        yearsList.forEach { yr ->
+                                            DropdownMenuItem(
+                                                text = { Text(yr.toString()) },
+                                                onClick = {
+                                                    selectedReportYear = yr
+                                                    yearExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Executive Summary card for month
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Assessment,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(36.dp)
+                                        )
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                "Month Executive Overview",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            val totPresent = monthlyAttendanceRecords.count { it.status == "Present" }
+                                            val totAbsent = monthlyAttendanceRecords.count { it.status == "Absent" }
+                                            val totLate = monthlyAttendanceRecords.count { it.status == "Late" }
+                                            val totLeave = monthlyAttendanceRecords.count { it.status == "On Leave" }
+                                            val totLogs = totPresent + totAbsent + totLate
+
+                                            val avgMonthlyRate = if (totLogs > 0) {
+                                                ((totPresent + totLate).toFloat() / totLogs) * 100f
+                                            } else {
+                                                100f
+                                            }
+
+                                            Text(
+                                                text = "On-Time attendance rate is ${String.format(java.util.Locale.US, "%.1f%%", avgMonthlyRate)}",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+
+                                            Text(
+                                                text = "Active sessions: $totLogs. Logs breakdown -> Present: $totPresent | Late: $totLate | Absent: $totAbsent | On Leave: $totLeave",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Button(
+                                        onClick = { showSummaryReportDialog = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary
+                                        )
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Icon(Icons.Default.Assessment, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Text("Generate Monthly Summary Report", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Matrix grid card
+                            Card(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    if (teachersList.isEmpty()) {
+                                        item {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("No faculty available to generate monthly reporting.", color = Color.Gray, textAlign = TextAlign.Center)
+                                            }
+                                        }
+                                    } else {
+                                        items(teachersList) { teacher ->
+                                            val teacherRecords = monthlyAttendanceRecords.filter { it.teacherId == teacher.id }
+                                            val pCount = teacherRecords.count { it.status == "Present" }
+                                            val aCount = teacherRecords.count { it.status == "Absent" }
+                                            val lCount = teacherRecords.count { it.status == "Late" }
+                                            val oCount = teacherRecords.count { it.status == "On Leave" }
+                                            val legCount = pCount + aCount + lCount
+                                            val rate = if (legCount > 0) {
+                                                ((pCount + lCount).toFloat() / legCount) * 100f
+                                            } else {
+                                                100f
+                                            }
+
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(32.dp)
+                                                                .clip(CircleShape)
+                                                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(
+                                                                text = teacher.name.firstOrNull()?.toString() ?: "T",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                            )
+                                                        }
+
+                                                        Column {
+                                                            Text(
+                                                                text = teacher.name,
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                            Text(
+                                                                text = "Pres: $pCount | Late: $lCount | Abs: $aCount | Lve: $oCount",
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = Color.Gray,
+                                                                fontSize = 11.sp
+                                                            )
+                                                            val loggedDaysWithTimes = teacherRecords.filter { it.signInTime.isNotEmpty() || it.signOutTime.isNotEmpty() }
+                                                            if (loggedDaysWithTimes.isNotEmpty()) {
+                                                                val latestRecord = loggedDaysWithTimes.maxByOrNull { it.date }
+                                                                Text(
+                                                                    text = "Hours: ${loggedDaysWithTimes.size} days. Latest sync: ${latestRecord?.signInTime ?: "N/A"} - ${latestRecord?.signOutTime ?: "N/A"}",
+                                                                    style = MaterialTheme.typography.bodySmall,
+                                                                    color = MaterialTheme.colorScheme.primary,
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.SemiBold
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+
+                                                    Surface(
+                                                        color = when {
+                                                            rate >= 90f -> Color(0xFFE8F5E9)
+                                                            rate >= 75f -> Color(0xFFFFF3E0)
+                                                            else -> Color(0xFFFFEBEE)
+                                                        },
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = String.format(java.util.Locale.US, "%.0f%% Rate", rate),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = when {
+                                                                rate >= 90f -> Color(0xFF2E7D32)
+                                                                rate >= 75f -> Color(0xFFE65100)
+                                                                else -> Color(0xFFC62828)
+                                                            },
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                // Attendance circles calendar timeline row
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .horizontalScroll(rememberScrollState())
+                                                        .padding(vertical = 4.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    (1..maxDaysInMonth).forEach { day ->
+                                                        val dateStr = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedReportYear, selectedReportMonthIndex + 1, day)
+                                                        val match = monthlyAttendanceRecords.find { it.teacherId == teacher.id && it.date == dateStr }
+                                                        val status = match?.status ?: "None"
+
+                                                        val (circleColor, textColor) = when (status) {
+                                                            "Present" -> Color(0xFF2E7D32) to Color.White
+                                                            "Absent" -> Color(0xFFC62828) to Color.White
+                                                            "Late" -> Color(0xFFE65100) to Color.White
+                                                            "On Leave" -> Color(0xFF1565C0) to Color.White
+                                                            else -> Color.DarkGray.copy(alpha = 0.08f) to Color.Gray
+                                                        }
+
+                                                        val badgeChar = when (status) {
+                                                            "Present" -> "P"
+                                                            "Absent" -> "A"
+                                                            "Late" -> "L"
+                                                            "On Leave" -> "O"
+                                                            else -> day.toString()
+                                                        }
+
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(36.dp)
+                                                                .clip(CircleShape)
+                                                                .background(circleColor)
+                                                                .clickable {
+                                                                    selectedCellForEdit = Triple(teacher.id, dateStr, status)
+                                                                },
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(
+                                                                text = badgeChar,
+                                                                color = textColor,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(1.dp)
+                                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                                        .padding(vertical = 4.dp)
+                                                )
                                             }
                                         }
                                     }
@@ -4810,6 +6004,143 @@ fun TeachersListScreen(navController: NavController, viewModel: SchoolViewModel)
                 }
             }
         }
+
+        // Retroactive edit dialog
+        selectedCellForEdit?.let { cell ->
+            val teacherId = cell.first
+            val dateStr = cell.second
+            val currentStatus = cell.third
+            val teacher = teachersList.find { it.id == teacherId }
+
+            val matchRecord = remember(cell, allTeacherAttendanceList) {
+                allTeacherAttendanceList.find { it.teacherId == teacherId && it.date == dateStr }
+            }
+
+            var chosenStatus by remember(cell) { mutableStateOf(if (currentStatus == "None") "Present" else currentStatus) }
+            var retroactiveSignIn by remember(cell) { mutableStateOf(matchRecord?.signInTime ?: "") }
+            var retroactiveSignOut by remember(cell) { mutableStateOf(matchRecord?.signOutTime ?: "") }
+
+            AlertDialog(
+                onDismissRequest = { selectedCellForEdit = null },
+                title = {
+                    Text(
+                        text = "Retroactive Ledger Update",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Updating attendance record for ${teacher?.name ?: "Faculty Member"} on $dateStr.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text("Select Status:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+
+                        listOf("Present", "Absent", "Late", "On Leave").forEach { st ->
+                            val isSelected = chosenStatus == st
+                            val color = when (st) {
+                                "Present" -> Color(0xFF2E7D32)
+                                "Absent" -> Color(0xFFC62828)
+                                "Late" -> Color(0xFFE65100)
+                                else -> Color(0xFF1565C0)
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) color.copy(alpha = 0.12f) else Color.Transparent)
+                                    .clickable { chosenStatus = st }
+                                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { chosenStatus = st },
+                                    colors = RadioButtonDefaults.colors(selectedColor = color)
+                                )
+                                Text(
+                                    text = st,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) color else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        if (chosenStatus == "Present" || chosenStatus == "Late") {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("Log Hours:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+
+                            OutlinedTextField(
+                                value = retroactiveSignIn,
+                                onValueChange = { retroactiveSignIn = it },
+                                label = { Text("Sign-In Time") },
+                                placeholder = { Text("08:00 AM") },
+                                leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = {
+                                        retroactiveSignIn = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                                    }) {
+                                        Icon(Icons.Default.Check, contentDescription = "Now", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            )
+
+                            OutlinedTextField(
+                                value = retroactiveSignOut,
+                                onValueChange = { retroactiveSignOut = it },
+                                label = { Text("Sign-Out Time") },
+                                placeholder = { Text("05:00 PM") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = {
+                                        retroactiveSignOut = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                                    }) {
+                                        Icon(Icons.Default.Check, contentDescription = "Now", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.recordSingleTeacherAttendance(
+                                teacherId = teacherId,
+                                date = dateStr,
+                                status = chosenStatus,
+                                signInTime = retroactiveSignIn,
+                                signOutTime = retroactiveSignOut
+                            )
+                            android.widget.Toast.makeText(context, "Record updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                            selectedCellForEdit = null
+                        }
+                    ) {
+                        Text("Save Update")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { selectedCellForEdit = null }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 
 
@@ -4980,6 +6311,172 @@ fun TeachersListScreen(navController: NavController, viewModel: SchoolViewModel)
             },
             dismissButton = {
                 TextButton(onClick = { showAddLeaveDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showSummaryReportDialog) {
+        val selectedMonthName = monthsNames[selectedReportMonthIndex]
+        val totalTeachersCount = teachersList.size
+        
+        val reportBuilder = StringBuilder()
+        reportBuilder.append("========================================\n")
+        reportBuilder.append("    MONTHLY TEACHER ATTENDANCE REPORT   \n")
+        reportBuilder.append("========================================\n")
+        reportBuilder.append("School Faculty: Greenhill Academy\n")
+        reportBuilder.append("Report Month: $selectedMonthName $selectedReportYear\n")
+        reportBuilder.append("Generated On: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}\n")
+        reportBuilder.append("Total Staff on Roster: $totalTeachersCount members\n")
+        reportBuilder.append("----------------------------------------\n\n")
+
+        val prefix = String.format(java.util.Locale.US, "%04d-%02d", selectedReportYear, selectedReportMonthIndex + 1)
+        val monthlyAttendanceRecords = allTeacherAttendanceList.filter { it.date.startsWith(prefix) }
+        
+        val totPresent = monthlyAttendanceRecords.count { it.status == "Present" }
+        val totAbsent = monthlyAttendanceRecords.count { it.status == "Absent" }
+        val totLate = monthlyAttendanceRecords.count { it.status == "Late" }
+        val totLeave = monthlyAttendanceRecords.count { it.status == "On Leave" }
+        val totLogs = totPresent + totAbsent + totLate
+
+        val avgMonthlyRate = if (totLogs > 0) {
+            ((totPresent + totLate).toFloat() / totLogs) * 100f
+        } else {
+            100f
+        }
+
+        reportBuilder.append("OVERALL METRICS:\n")
+        reportBuilder.append(" * Attendance Rate: ${String.format(java.util.Locale.US, "%.1f%%", avgMonthlyRate)}\n")
+        reportBuilder.append(" * Total Logs Made: $totLogs\n")
+        reportBuilder.append(" * Present Days: $totPresent\n")
+        reportBuilder.append(" * Late Arrivals: $totLate\n")
+        reportBuilder.append(" * Unexcused Absences: $totAbsent\n")
+        reportBuilder.append(" * Authorized Leaves: $totLeave\n\n")
+        reportBuilder.append("STAFF BREAKDOWN:\n")
+        reportBuilder.append("----------------------------------------\n")
+
+        teachersList.forEach { teacher ->
+            val teacherRecords = monthlyAttendanceRecords.filter { it.teacherId == teacher.id }
+            val pCount = teacherRecords.count { it.status == "Present" }
+            val aCount = teacherRecords.count { it.status == "Absent" }
+            val lCount = teacherRecords.count { it.status == "Late" }
+            val oCount = teacherRecords.count { it.status == "On Leave" }
+            val legCount = pCount + aCount + lCount
+            val rate = if (legCount > 0) {
+                ((pCount + lCount).toFloat() / legCount) * 100f
+            } else {
+                100f
+            }
+            val rating = when {
+                rate >= 90f -> "Excellent"
+                rate >= 75f -> "Satisfactory"
+                else -> "Review Needed"
+            }
+            reportBuilder.append("👨‍🏫 Name: ${teacher.name}\n")
+            reportBuilder.append("  Role: ${teacher.assignedRole}\n")
+            reportBuilder.append("  Department: ${teacher.subjectSpecialty}\n")
+            reportBuilder.append("  Stats: Present: $pCount | Late: $lCount | Absent: $aCount | Leave: $oCount\n")
+            reportBuilder.append("  On-Time Attendance Rate: ${String.format(java.util.Locale.US, "%.1f%%", rate)} -> $rating\n")
+            reportBuilder.append("----------------------------------------\n")
+        }
+
+        val fullReportText = reportBuilder.toString()
+
+        AlertDialog(
+            onDismissRequest = { showSummaryReportDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Assessment,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "$selectedMonthName $selectedReportYear Summary",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Here is the compiled administrative monthly report for Greenhill Academy faculty of teachers.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(max = 280.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        val scrollState = rememberScrollState()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(scrollState)
+                        ) {
+                            Text(
+                                text = fullReportText,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("Monthly Attendance Report", fullReportText)
+                                clipboard.setPrimaryClip(clip)
+                                android.widget.Toast.makeText(context, "Report copied to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Check, contentDescription = "Copy", modifier = Modifier.size(16.dp))
+                                Text("Copy", fontSize = 12.sp)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Greenhill Teacher Attendance Report - $selectedMonthName")
+                                    putExtra(android.content.Intent.EXTRA_TEXT, fullReportText)
+                                }
+                                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Attendance Report Summary"))
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(16.dp))
+                                Text("Share", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSummaryReportDialog = false }) {
+                    Text("Close Ledger")
+                }
             }
         )
     }
@@ -5787,6 +7284,12 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                     text = { Text("Report Cards", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                     icon = { Icon(Icons.Default.InsertDriveFile, contentDescription = null, modifier = Modifier.size(20.dp)) }
                 )
+                Tab(
+                    selected = activeTab == 3,
+                    onClick = { activeTab = 3 },
+                    text = { Text("Central Grade Book", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                    icon = { Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                )
             }
 
             // Tab contents
@@ -5992,6 +7495,44 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color.Gray
                                     )
+
+                                    // Pre-Load UNEB Conforming Dataset Button
+                                    Button(
+                                        onClick = {
+                                            if (filteredStudents.isEmpty()) {
+                                                android.widget.Toast.makeText(context, "No registered pupils found in $excelClassInput. Add some students first!", android.widget.Toast.LENGTH_LONG).show()
+                                            } else {
+                                                val isNursery = excelClassInput.lowercase().contains("nursery") || excelClassInput.lowercase().contains("middle") || excelClassInput.lowercase().contains("top")
+                                                val sampleBuilder = StringBuilder()
+                                                val classSubjects = if (isNursery) {
+                                                    listOf("Literacy & Numeracy")
+                                                } else {
+                                                    listOf("Mathematics", "English Language", "Integrated Science", "Social Studies")
+                                                }
+                                                filteredStudents.forEach { st ->
+                                                    classSubjects.forEach { subj ->
+                                                        val base = (65..92).random()
+                                                        val mid = (base - (1..10).random()).coerceIn(40, 100)
+                                                        val eot = (base + (1..8).random()).coerceIn(40, 100)
+                                                        sampleBuilder.append("${st.rollNumber},$subj,Midterm Exam,$mid,100.0\n")
+                                                        sampleBuilder.append("${st.rollNumber},$subj,End of Term Exam,$eot,100.0\n")
+                                                    }
+                                                }
+                                                bulkCsvInput = sampleBuilder.toString()
+                                                selectedAssessmentFileName = "Conforming_UNEB_Sheet.csv"
+                                                assessmentErrorFeedback = null
+                                                assessmentSuccessFeedback = "Generated optimal UNEB-conforming exam scores for ${filteredStudents.size} registered pupils."
+                                                android.widget.Toast.makeText(context, "Conforming Excel dataset loaded for $excelClassInput! Click run evaluator below to sync.", android.widget.Toast.LENGTH_LONG).show()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("load_uneb_sample_button")
+                                    ) {
+                                        Icon(Icons.Default.GridOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Pre-Load Conforming UNEB Excel Dataset", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                    }
                                     
                                     // File Selection Input Area
                                     Card(
@@ -6402,6 +7943,12 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                 2 -> {
                     // TAB 2: Terminal Report Cards Generation Hub
                     var reportStudentExpanded by remember { mutableStateOf(false) }
+                    var isBulkGenerating by remember { mutableStateOf(false) }
+                    var bulkProgressCurrent by remember { mutableStateOf(0) }
+                    var bulkProgressTotal by remember { mutableStateOf(0) }
+                    var selectedClassBatch by remember { mutableStateOf("Primary Seven (P.7)") }
+                    var classBatchDropdownExpanded by remember { mutableStateOf(false) }
+                    val classStudents = listStudents.filter { it.gradeLevel == selectedClassBatch }
 
                     LazyColumn(
                         modifier = Modifier
@@ -6416,10 +7963,6 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                         }
 
                         item {
-                            var selectedClassBatch by remember { mutableStateOf("Primary Seven (P.7)") }
-                            var classBatchDropdownExpanded by remember { mutableStateOf(false) }
-                            val classStudents = listStudents.filter { it.gradeLevel == selectedClassBatch }
-
                             Card(
                                 modifier = Modifier.fillMaxWidth().testTag("class_batch_pdf_card"),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
@@ -6532,6 +8075,182 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text("Batch Download PDFs (Print All)", fontWeight = FontWeight.SemiBold)
                                     }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Button(
+                                        onClick = {
+                                            if (classStudents.isEmpty()) {
+                                                android.widget.Toast.makeText(context, "No pupils listed in $selectedClassBatch.", android.widget.Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                isBulkGenerating = true
+                                                bulkProgressCurrent = 0
+                                                bulkProgressTotal = classStudents.size
+                                                bulkExportIndividualPdfs(
+                                                    context = context,
+                                                    classLevel = selectedClassBatch,
+                                                    students = listStudents,
+                                                    allGrades = listGrades,
+                                                    onProgress = { current, total ->
+                                                        bulkProgressCurrent = current
+                                                        bulkProgressTotal = total
+                                                    },
+                                                    onFinished = { total ->
+                                                        isBulkGenerating = false
+                                                        android.widget.Toast.makeText(context, "Successfully generated and saved $total individual PDF report cards to Downloads/Pearl_Junior_School_Reports!", android.widget.Toast.LENGTH_LONG).show()
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth().testTag("bulk_generate_individual_pdfs_button"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                        shape = RoundedCornerShape(8.dp),
+                                        enabled = classStudents.isNotEmpty() && !isBulkGenerating
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Bulk-Generate Individual PDFs (Save Separately)", fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            var smsTemplateText by remember { mutableStateOf("Dear [Parent], the Terminal CA Report Card for [Student] ([Roll]) in [Class] has been officially published by Pearl Junior School Office. Please login to the Secure Parent Portal using the roll key to retrieve it.") }
+                            
+                            val publishedCount = classStudents.count { it.isReportCardPublished }
+                            val isPublishedSelection = classStudents.isNotEmpty() && publishedCount > 0
+                            
+                            Card(
+                                modifier = Modifier.fillMaxWidth().testTag("report_card_publication_card"),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isPublishedSelection) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f) 
+                                                     else MaterialTheme.colorScheme.surface
+                                ),
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (isPublishedSelection) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f) 
+                                            else MaterialTheme.colorScheme.outlineVariant
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SendToMobile,
+                                            contentDescription = null,
+                                            tint = if (isPublishedSelection) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Text(
+                                            "Simulated SMS Gateway & Dispatch",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isPublishedSelection) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    
+                                    Text(
+                                        text = "Manage terminal reports online availability status and configure automated broadcast dispatches to parents. Placeholders available: [Parent], [Student], [Class], [Roll].",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    
+                                    // Status Indicator
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Publication Status:",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        
+                                        SuggestionChip(
+                                            onClick = {},
+                                            label = {
+                                                Text(
+                                                    text = if (isPublishedSelection) "Published ($publishedCount/${classStudents.size} Pupils)" else "Unpublished / Saved Draft",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                )
+                                            },
+                                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = if (isPublishedSelection) MaterialTheme.colorScheme.tertiaryContainer 
+                                                                 else MaterialTheme.colorScheme.surfaceVariant
+                                            )
+                                        )
+                                    }
+                                    
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    
+                                    OutlinedTextField(
+                                        value = smsTemplateText,
+                                        onValueChange = { smsTemplateText = it },
+                                        label = { Text("SMS Dispatch Template Text", fontSize = 11.sp) },
+                                        placeholder = { Text("Draft the automated SMS details...") },
+                                        modifier = Modifier.fillMaxWidth().testTag("sms_template_input_field"),
+                                        textStyle = MaterialTheme.typography.bodySmall,
+                                        minLines = 3,
+                                        maxLines = 5,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedContainerColor = Color.White,
+                                            unfocusedContainerColor = Color.White
+                                        )
+                                    )
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Publish Button
+                                        Button(
+                                            onClick = {
+                                                if (classStudents.isEmpty()) {
+                                                     android.widget.Toast.makeText(context, "No pupils listed in $selectedClassBatch to publish reports.", android.widget.Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    viewModel.publishReportCardsForClass(selectedClassBatch, smsTemplateText)
+                                                     android.widget.Toast.makeText(context, "Successfully published report cards & triggered automated SMS alerts to parents!", android.widget.Toast.LENGTH_LONG).show()
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f).testTag("publish_class_reports_button"),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                            shape = RoundedCornerShape(8.dp),
+                                            enabled = classStudents.isNotEmpty()
+                                        ) {
+                                            Icon(Icons.Default.SendToMobile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                             Text("Publish & Alert", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        }
+                                        
+                                         // Retract/Unpublish Button
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (classStudents.isEmpty()) {
+                                                     android.widget.Toast.makeText(context, "No pupils listed in $selectedClassBatch.", android.widget.Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    viewModel.unpublishReportCardsForClass(selectedClassBatch)
+                                                     android.widget.Toast.makeText(context, "Retracted report cards visibility from Parent Secure Space.", android.widget.Toast.LENGTH_LONG).show()
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1.1f).testTag("retract_class_reports_button"),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            enabled = classStudents.isNotEmpty() && isPublishedSelection
+                                        ) {
+                                            Icon(Icons.Default.LockReset, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                             Text("Retract / Pull Back", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -6594,12 +8313,14 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                 var divisionStr = "Division U (Ungraded / Fail)"
                                 var currentTeacherRemark = ""
                                 var currentHeadRemark = ""
+                                var mathPts = 9
+                                var engPts = 9
 
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFDF6)), // Cream colored background
-                                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                    border = BorderStroke(2.dp, Color(0xFFE65100))
                                 ) {
                                     Column(
                                         modifier = Modifier
@@ -6622,24 +8343,25 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
                                                     "PEARL JUNIOR SCHOOL",
-                                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-                                                    color = MaterialTheme.colorScheme.primary
+                                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
+                                                    color = Color(0xFF1A237E)
                                                 )
                                             }
+                                            Text("THE REPUBLIC OF UGANDA • MINISTRY OF EDUCATION", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp), color = Color(0xFFD50000))
                                             Text("P.O. Box 773, Kampala • Tel: +256 772 400101", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                             Text("Web: www.pearljuniorschool.sc.ug", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                             
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Surface(
-                                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                                color = Color(0xFFFFF3E0),
                                                 shape = RoundedCornerShape(4.dp),
-                                                modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.primary)
+                                                modifier = Modifier.border(1.dp, Color(0xFFE65100))
                                             ) {
                                                 Text(
-                                                    "TERMLY CA PROGRESS REPORT CARD",
-                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    "NATIONAL UNEB-STANDARD PROGRESS REPORT",
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 10.sp),
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                    color = Color(0xFFE65100)
                                                 )
                                             }
                                         }
@@ -6656,7 +8378,8 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                 Text("Class Level: " + activePupil.gradeLevel, style = MaterialTheme.typography.bodySmall)
                                             }
                                             Column(horizontalAlignment = Alignment.End) {
-                                                Text("Roll ID: " + activePupil.rollNumber, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                val candidateIdx = "UT4812/" + activePupil.rollNumber.replace("S", "").replace("s", "").trim().padStart(3, '0')
+                                                Text("UNEB Index: $candidateIdx", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF1A237E))
                                                 Text("Term: Term I (2026)", style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
@@ -6734,6 +8457,8 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                 if (!isNursery) {
                                                     aggregatesSum += points
                                                     subjectGradesCount++
+                                                    if (subj == "Mathematics") mathPts = points
+                                                    if (subj == "English Language") engPts = points
                                                 }
 
                                                 Row(
@@ -6744,7 +8469,17 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    Text(subj, modifier = Modifier.weight(1.8f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                                    val (subjCode, teacherInitials) = when (subj) {
+                                                         "Mathematics" -> Pair("MTC-456", "M.K.")
+                                                         "English Language" -> Pair("ENG-101", "N.S.")
+                                                         "Integrated Science" -> Pair("SCI-553", "A.O.")
+                                                         "Social Studies" -> Pair("SST-204", "K.B.")
+                                                         else -> Pair("GEN-909", "TR")
+                                                     }
+                                                     Column(modifier = Modifier.weight(1.8f)) {
+                                                         Text(subj, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+                                                         Text("Code: $subjCode • Initials: $teacherInitials", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
+                                                     }
                                                     Text(midGrade?.let { String.format(Locale.US, "%.0f", it) } ?: "-", modifier = Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium)
                                                     Text(eotGrade?.let { String.format(Locale.US, "%.0f", it) } ?: "-", modifier = Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium)
                                                     Text(String.format(Locale.US, "%.1f", weightedTotal), modifier = Modifier.weight(1.1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
@@ -6794,7 +8529,9 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                         
                                                         // Ugandan Division calculation basing on points sum
                                                         divisionStr = when {
-                                                            aggregatesSum in 4..12 -> "Division I (First Grade) 🌟"
+                                                            (mathPts == 9 || engPts == 9) -> "Division IV (Failure in Core Subject)"
+                                                            aggregatesSum in 4..12 && (mathPts <= 6 && engPts <= 6) -> "Division I (First Grade) 🌟"
+                                                            aggregatesSum in 4..12 && !(mathPts <= 6 && engPts <= 6) -> "Division II (Downgraded due to English/Math)"
                                                             aggregatesSum in 13..24 -> "Division II (Second Grade)"
                                                             aggregatesSum in 25..29 -> "Division III (Third Grade)"
                                                             aggregatesSum in 30..34 -> "Division IV (Fourth Grade)"
@@ -6898,6 +8635,33 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.Bottom
                                             ) {
+                                                // Dynamic Digital Integrity Barcode
+                                                Column(
+                                                    horizontalAlignment = Alignment.Start,
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                                    modifier = Modifier.padding(end = 4.dp)
+                                                ) {
+                                                    Text("SYSTEM VERIFICATION BARCODE", fontSize = 7.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .border(0.5.dp, Color.LightGray)
+                                                            .background(Color.White)
+                                                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(1.dp)
+                                                    ) {
+                                                        val barWidths = listOf(1, 3, 2, 1, 4, 1, 2, 3, 1, 2, 4, 1, 3, 1)
+                                                        barWidths.forEach { w ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .width(w.dp)
+                                                                    .height(18.dp)
+                                                                    .background(Color.Black)
+                                                            )
+                                                        }
+                                                    }
+                                                    Text("VERIFIED: TERM-I-2026", fontSize = 7.sp, color = Color.Gray)
+                                                }
+
                                                 Column(modifier = Modifier.border(0.5.dp, Color.LightGray).padding(4.dp)) {
                                                     Text("HEADTEACHER SIGNATURE", fontSize = 10.sp, color = Color.Gray)
                                                     Spacer(modifier = Modifier.height(12.dp))
@@ -7031,6 +8795,8 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                             ) {
                                                 Button(
                                                     onClick = {
+                                                        val posInfo = calculateStudentPosition(activePupil.id, activePupil.gradeLevel, listStudents, listGrades)
+                                                        val positionStr = "${posInfo.first} of ${posInfo.second}"
                                                         exportReportCard(
                                                             context = context,
                                                             pupil = activePupil,
@@ -7041,7 +8807,8 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                             avgScore = avgScore,
                                                             division = divisionStr,
                                                             feesSummary = feesSummary,
-                                                            format = "CSV"
+                                                            format = "CSV",
+                                                            position = positionStr
                                                         )
                                                     },
                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
@@ -7054,6 +8821,8 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
 
                                                 Button(
                                                     onClick = {
+                                                        val posInfo = calculateStudentPosition(activePupil.id, activePupil.gradeLevel, listStudents, listGrades)
+                                                        val positionStr = "${posInfo.first} of ${posInfo.second}"
                                                         exportReportCard(
                                                             context = context,
                                                             pupil = activePupil,
@@ -7064,7 +8833,8 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                                                             avgScore = avgScore,
                                                             division = divisionStr,
                                                             feesSummary = feesSummary,
-                                                            format = "HTML"
+                                                            format = "HTML",
+                                                            position = positionStr
                                                         )
                                                     },
                                                     modifier = Modifier.weight(1f).testTag("print_pdf_button")
@@ -7112,6 +8882,52 @@ fun GradesScreen(navController: NavController, viewModel: SchoolViewModel) {
                             }
                         }
                     }
+
+                    if (isBulkGenerating) {
+                        AlertDialog(
+                            onDismissRequest = { /* Prevent dismiss */ },
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Bulk-Generating PDFs", style = MaterialTheme.typography.titleMedium)
+                                }
+                            },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        "Please keep the app open while we compile individual report cards.",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { if (bulkProgressTotal > 0) bulkProgressCurrent.toFloat() / bulkProgressTotal else 0f },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    Text(
+                                        text = "Processed $bulkProgressCurrent of $bulkProgressTotal pupils...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "Saving directly to Downloads/Pearl_Junior_School_Reports/",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                            },
+                            confirmButton = {}
+                        )
+                    }
+                }
+                3 -> {
+                    CentralGradeBookScreen(viewModel)
                 }
             }
         }
@@ -7301,6 +9117,40 @@ fun fallbackComments(raw: String, onResult: (String, String) -> Unit) {
     onResult(teacher.replace("\"", "").trim(), head.replace("\"", "").trim())
 }
 
+fun calculateStudentPosition(
+    studentId: Int,
+    classLevel: String,
+    students: List<com.example.data.entity.Student>,
+    allGrades: List<com.example.data.entity.Grade>
+): Pair<Int, Int> {
+    val classStudents = students.filter { it.gradeLevel.equals(classLevel, ignoreCase = true) }
+    if (classStudents.isEmpty()) return Pair(1, 1)
+
+    val studentAverages = classStudents.map { pupil ->
+        val isNursery = pupil.gradeLevel.contains("Class", ignoreCase = true)
+        val studentGrades = allGrades.filter { it.studentId.toInt() == pupil.id }
+        val activeSubjects = if (isNursery) listOf("Literacy & Numeracy") else listOf("Mathematics", "English Language", "Integrated Science", "Social Studies")
+        var totalWeightedGradeSum = 0.0
+        var countSubjects = 0
+        activeSubjects.forEach { subj ->
+            val mid = studentGrades.find { it.subjectName == subj && it.examName == "Midterm Exam" }?.score
+            val eot = studentGrades.find { it.subjectName == subj && it.examName == "End of Term Exam" }?.score
+            val wTotal = if (mid != null && eot != null) (mid * 0.4) + (eot * 0.6) else eot ?: mid ?: 0.0
+            if (mid != null || eot != null) {
+                totalWeightedGradeSum += wTotal
+                countSubjects++
+            }
+        }
+        val avgScore = if (countSubjects > 0) totalWeightedGradeSum / countSubjects else 0.0
+        pupil.id to avgScore
+    }
+
+    val sortedAverages = studentAverages.sortedByDescending { it.second }
+    val rank = sortedAverages.indexOfFirst { it.first == studentId } + 1
+    val finalRank = if (rank <= 0) 1 else rank
+    return Pair(finalRank, classStudents.size)
+}
+
 fun exportReportCard(
     context: android.content.Context, 
     pupil: com.example.data.entity.Student, 
@@ -7311,7 +9161,8 @@ fun exportReportCard(
     avgScore: Double, 
     division: String, 
     feesSummary: String, 
-    format: String
+    format: String,
+    position: String = ""
 ) {
     val prefs = context.getSharedPreferences("school_prefs", android.content.Context.MODE_PRIVATE)
     val logoBase64 = prefs.getString("school_logo_base64", null)
@@ -7328,6 +9179,9 @@ fun exportReportCard(
         csvBuilder.append("Pupil Name,${pupil.name}\n")
         csvBuilder.append("Roll Number,${pupil.rollNumber}\n")
         csvBuilder.append("Class Level,${pupil.gradeLevel}\n")
+        if (position.isNotBlank()) {
+            csvBuilder.append("Class Position,$position\n")
+        }
         csvBuilder.append("Average Score,${String.format(java.util.Locale.US, "%.2f%%", avgScore)}\n")
         if (!isNursery) {
             csvBuilder.append("Outturn,${division.replace("🌟", "")}\n")
@@ -7434,6 +9288,7 @@ fun exportReportCard(
                         <div class="info-col">
                             <div class="info-item"><span class="info-label">Pupil Name:</span> ${pupil.name}</div>
                             <div class="info-item"><span class="info-label">Class Level:</span> ${pupil.gradeLevel}</div>
+                            ${if (position.isNotBlank()) "<div class=\"info-item\"><span class=\"info-label\">Class Position:</span> <strong style=\"color: #1a237e;\">$position</strong></div>" else ""}
                         </div>
                         <div class="info-col" style="text-align: right;">
                             <div class="info-item"><span class="info-label">Roll ID:</span> ${pupil.rollNumber}</div>
@@ -7597,6 +9452,26 @@ fun exportClassReportCardsToPdf(
         return
     }
 
+    val classAverages = filtered.map { pupil ->
+        val isNursery = pupil.gradeLevel.contains("Class", ignoreCase = true)
+        val studentGrades = allGrades.filter { it.studentId == pupil.id }
+        val activeSubjects = if (isNursery) listOf("Literacy & Numeracy") else listOf("Mathematics", "English Language", "Integrated Science", "Social Studies")
+        var totalWeightedGradeSum = 0.0
+        var countSubjects = 0
+        activeSubjects.forEach { subj ->
+            val mid = studentGrades.find { it.subjectName == subj && it.examName == "Midterm Exam" }?.score
+            val eot = studentGrades.find { it.subjectName == subj && it.examName == "End of Term Exam" }?.score
+            val wTotal = if (mid != null && eot != null) (mid * 0.4) + (eot * 0.6) else eot ?: mid ?: 0.0
+            if (mid != null || eot != null) {
+                totalWeightedGradeSum += wTotal
+                countSubjects++
+            }
+        }
+        val avgScore = if (countSubjects > 0) totalWeightedGradeSum / countSubjects else 0.0
+        pupil.id to avgScore
+    }
+    val sortedAverages = classAverages.sortedByDescending { it.second }
+
     val htmlBuilder = java.lang.StringBuilder()
     htmlBuilder.append("""
         <!DOCTYPE html>
@@ -7654,6 +9529,10 @@ fun exportClassReportCardsToPdf(
     """.trimIndent())
 
     filtered.forEach { pupil ->
+        val rankIndex = sortedAverages.indexOfFirst { it.first == pupil.id } + 1
+        val finalRank = if (rankIndex <= 0) 1 else rankIndex
+        val positionStr = "$finalRank of ${filtered.size}"
+
         val isNursery = pupil.gradeLevel.contains("Class", ignoreCase = true)
         val studentGrades = allGrades.filter { it.studentId == pupil.id }
         val activeSubjects = if (isNursery) listOf("Literacy & Numeracy") else listOf("Mathematics", "English Language", "Integrated Science", "Social Studies")
@@ -7770,6 +9649,7 @@ fun exportClassReportCardsToPdf(
                     <div class="info-col">
                         <div class="info-item"><span class="info-label">Pupil Name:</span> ${pupil.name}</div>
                         <div class="info-item"><span class="info-label">Class Level:</span> ${pupil.gradeLevel}</div>
+                        <div class="info-item"><span class="info-label">Class Position:</span> <strong style="color: #1a237e;">$positionStr</strong></div>
                     </div>
                     <div class="info-col" style="text-align: right;">
                         <div class="info-item"><span class="info-label">Roll ID:</span> ${pupil.rollNumber}</div>
@@ -7852,6 +9732,352 @@ fun exportClassReportCardsToPdf(
             e.printStackTrace()
             fallbackToDownloadAndShare(context, "Class_${classLevel}", fileContent)
         }
+    }
+}
+
+fun bulkExportIndividualPdfs(
+    context: android.content.Context,
+    classLevel: String,
+    students: List<com.example.data.entity.Student>,
+    allGrades: List<com.example.data.entity.Grade>,
+    onProgress: (Int, Int) -> Unit,
+    onFinished: (Int) -> Unit
+) {
+    val filtered = students.filter { it.gradeLevel == classLevel }
+    if (filtered.isEmpty()) {
+        android.widget.Toast.makeText(context, "No pupils found in $classLevel to generate report cards.", android.widget.Toast.LENGTH_LONG).show()
+        onFinished(0)
+        return
+    }
+
+    val classAverages = filtered.map { pupil ->
+        val isNursery = pupil.gradeLevel.contains("Class", ignoreCase = true)
+        val studentGrades = allGrades.filter { it.studentId == pupil.id }
+        val activeSubjects = if (isNursery) listOf("Literacy & Numeracy") else listOf("Mathematics", "English Language", "Integrated Science", "Social Studies")
+        var totalWeightedGradeSum = 0.0
+        var countSubjects = 0
+        activeSubjects.forEach { subj ->
+            val mid = studentGrades.find { it.subjectName == subj && it.examName == "Midterm Exam" }?.score
+            val eot = studentGrades.find { it.subjectName == subj && it.examName == "End of Term Exam" }?.score
+            val wTotal = if (mid != null && eot != null) (mid * 0.4) + (eot * 0.6) else eot ?: mid ?: 0.0
+            if (mid != null || eot != null) {
+                totalWeightedGradeSum += wTotal
+                countSubjects++
+            }
+        }
+        val avgScore = if (countSubjects > 0) totalWeightedGradeSum / countSubjects else 0.0
+        pupil.id to avgScore
+    }
+    val sortedAverages = classAverages.sortedByDescending { it.second }
+
+    val prefs = context.getSharedPreferences("school_prefs", android.content.Context.MODE_PRIVATE)
+    val logoBase64 = prefs.getString("school_logo_base64", null)
+    val logoImgTag = if (!logoBase64.isNullOrBlank()) {
+        "<img src=\"data:image/png;base64,$logoBase64\" style=\"max-height: 80px; max-width: 150px; margin-bottom: 12px; object-fit: contain; display: block; margin-left: auto; margin-right: auto;\" />"
+    } else {
+        ""
+    }
+
+    var currentIndex = 0
+
+    fun processNext() {
+        if (currentIndex >= filtered.size) {
+            onFinished(filtered.size)
+            return
+        }
+
+        val pupil = filtered[currentIndex]
+        onProgress(currentIndex + 1, filtered.size)
+
+        val rankIndex = sortedAverages.indexOfFirst { it.first == pupil.id } + 1
+        val finalRank = if (rankIndex <= 0) 1 else rankIndex
+        val positionStr = "$finalRank of ${filtered.size}"
+
+        val isNursery = pupil.gradeLevel.contains("Class", ignoreCase = true)
+        val studentGrades = allGrades.filter { it.studentId == pupil.id }
+        val activeSubjects = if (isNursery) listOf("Literacy & Numeracy") else listOf("Mathematics", "English Language", "Integrated Science", "Social Studies")
+
+        var totalWeightedGradeSum = 0.0
+        var countSubjects = 0
+        var aggregatesSum = 0
+        
+        val rowsBuilder = java.lang.StringBuilder()
+
+        activeSubjects.forEach { subj ->
+            val mid = studentGrades.find { it.subjectName == subj && it.examName == "Midterm Exam" }?.score
+            val eot = studentGrades.find { it.subjectName == subj && it.examName == "End of Term Exam" }?.score
+            val wTotal = if (mid != null && eot != null) (mid * 0.4) + (eot * 0.6) else eot ?: mid ?: 0.0
+
+            if (mid != null || eot != null) {
+                totalWeightedGradeSum += wTotal
+                countSubjects++
+
+                val (gradeStr, points) = if (isNursery) {
+                    when {
+                        wTotal >= 80.0 -> Pair("A (Achieved)", 1)
+                        wTotal >= 50.0 -> Pair("D (Developing)", 2)
+                        else -> Pair("B (Beginning)", 9)
+                    }
+                } else {
+                    when {
+                        wTotal >= 85.0 -> Pair("D1", 1)
+                        wTotal >= 75.0 -> Pair("D2", 2)
+                        wTotal >= 70.0 -> Pair("C3", 3)
+                        wTotal >= 65.0 -> Pair("C4", 4)
+                        wTotal >= 60.0 -> Pair("C5", 5)
+                        wTotal >= 50.0 -> Pair("C6", 6)
+                        wTotal >= 45.0 -> Pair("P7", 7)
+                        wTotal >= 40.0 -> Pair("P8", 8)
+                        else -> Pair("F9", 9)
+                    }
+                }
+
+                if (!isNursery) {
+                    aggregatesSum += points
+                }
+
+                rowsBuilder.append("""
+                    <tr>
+                        <td class="bold">$subj</td>
+                        <td>${mid?.let { String.format(java.util.Locale.US, "%.0f", it) } ?: "-"}</td>
+                        <td>${eot?.let { String.format(java.util.Locale.US, "%.0f", it) } ?: "-"}</td>
+                        <td class="bold">${String.format(java.util.Locale.US, "%.1f", wTotal)}</td>
+                        <td><span style="font-weight: bold; color: #1a237e;">$gradeStr</span></td>
+                    </tr>
+                """.trimIndent())
+            }
+        }
+
+        val avgScore = if (countSubjects > 0) totalWeightedGradeSum / countSubjects else 0.0
+        val divisionStr = if (!isNursery) {
+            when {
+                aggregatesSum in 4..12 -> "Division I (First Grade) 🌟"
+                aggregatesSum in 13..24 -> "Division II (Second Grade)"
+                aggregatesSum in 25..29 -> "Division III (Third Grade)"
+                aggregatesSum in 30..34 -> "Division IV (Fourth Grade)"
+                else -> "Division U (Ungraded / Fail)"
+            }
+        } else {
+            if (avgScore >= 80) "Nursery Achieved Promisingly" else "Developing Steadily"
+        }
+
+        val defaultTeacherRemark = if (avgScore >= 80.0) {
+            "Consistently diligent and disciplined. Outstanding academic competence. Keep the same tempo!"
+        } else if (avgScore >= 60.0) {
+            "A promising child who shows regular performance. Should double efforts in homework targets."
+        } else {
+            "Amiable child. Needs strictly focused revision assistance in Mathematics to pass well."
+        }
+
+        val defaultHeadRemark = if (avgScore >= 80.0) {
+            "Excellent Outturn! Approved for academic honors. Keep shining."
+        } else {
+            "Reviewed and signed. Encouraged to strive higher next term."
+        }
+
+        val outstanding = pupil.feesTotal - pupil.feesPaid
+        val isCleared = outstanding <= 0
+        val feesHtml = if (isCleared) {
+            """
+            <div class="fees-cleared">
+                <div style="font-weight: bold; font-size: 13px;">FEES STATUS</div>
+                <div style="font-size: 16px; font-weight: bold; margin: 4px 0;">FULLY PAID</div>
+                <div style="font-size: 10px;">APPROVED & CLEARED</div>
+            </div>
+            """.trimIndent()
+        } else {
+            """
+            <div class="fees-status">
+                <div style="font-weight: bold; font-size: 13px;">FEES BALANCE DUE</div>
+                <div style="font-size: 16px; font-weight: bold; margin: 4px 0;">UGX ${String.format(java.util.Locale.US, "%,.0f", outstanding)}</div>
+                <div style="font-size: 10px;">PROVISIONAL DISPATCH</div>
+            </div>
+            """.trimIndent()
+        }
+
+        val htmlContent = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Pearl Junior School Report - ${pupil.name}</title>
+                <style>
+                    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; color: #333; padding: 25px; line-height: 1.4; }
+                    .report-container { max-width: 800px; margin: 0 auto; border: 3px double #1a237e; padding: 25px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+                    .header { text-align: center; margin-bottom: 20px; }
+                    .school-name { font-size: 28px; font-weight: 900; color: #1a237e; letter-spacing: 1px; margin: 0; }
+                    .school-sub { font-size: 13px; color: #666; margin: 3px 0; }
+                    .report-title { display: inline-block; padding: 6px 16px; background: #f5f5f5; border: 1px solid #1a237e; margin-top: 10px; font-weight: bold; border-radius: 4px; }
+                    .student-info { display: flex; justify-content: space-between; margin: 20px 0; padding: 10px; background: #fbfbfb; border: 1px solid #ddd; border-radius: 4px; }
+                    .info-col { width: 48%; }
+                    .info-item { font-size: 14px; margin: 5px 0; }
+                    .info-label { font-weight: bold; color: #555; }
+                    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                    th { background: #1a237e; color: #fff; text-align: left; padding: 10px; font-size: 13px; }
+                    td { border: 1px solid #ddd; padding: 10px; font-size: 14px; }
+                    tr:nth-child(even) { background-color: #f9f9f9; }
+                    .summary-sec { display: flex; justify-content: space-between; margin-top: 20px; gap: 20px; }
+                    .metrics { flex: 1.2; font-size: 14px; }
+                    .fees-status { flex: 0.8; border: 2px dashed #c62828; padding: 10px; text-align: center; border-radius: 6px; background: #ffebee; color: #c62828; max-height: max-content; }
+                    .fees-cleared { flex: 0.8; border: 2px solid #2e7d32; padding: 10px; text-align: center; border-radius: 6px; background: #e8f5e9; color: #2e7d32; max-height: max-content; }
+                    .bold { font-weight: bold; }
+                    .remarks-box { margin-top: 25px; padding: 15px; border: 1px solid #ddd; background: #fafafa; border-radius: 4px; }
+                    .remark-item { margin-bottom: 10px; font-size: 14px; }
+                    .footer-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 35px; }
+                    .signature-box { border-top: 1px solid #ddd; padding-top: 8px; width: 200px; text-align: center; font-size: 12px; }
+                    .stamp { width: 70px; height: 70px; border: 2px solid #1976d2; border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #e3f2fd; color: #1976d2; font-size: 8px; font-weight: bold; }
+                </style>
+            </head>
+            <body>
+                <div class="report-container">
+                    <div class="header">
+                        $logoImgTag
+                        <h1 class="school-name">PEARL JUNIOR SCHOOL</h1>
+                        <div class="school-sub">P.O. Box 773, Kampala • Tel: +256 772 400101</div>
+                        <div class="school-sub">Web: www.pearljuniorschool.sc.ug</div>
+                        <div class="report-title">TERMLY CA PROGRESS REPORT CARD</div>
+                    </div>
+                    
+                    <div class="student-info">
+                        <div class="info-col">
+                            <div class="info-item"><span class="info-label">Pupil Name:</span> ${pupil.name}</div>
+                            <div class="info-item"><span class="info-label">Class Level:</span> ${pupil.gradeLevel}</div>
+                            <div class="info-item"><span class="info-label">Class Position:</span> <strong style="color: #1a237e;">$positionStr</strong></div>
+                        </div>
+                        <div class="info-col" style="text-align: right;">
+                            <div class="info-item"><span class="info-label">Roll ID:</span> ${pupil.rollNumber}</div>
+                            <div class="info-item"><span class="info-label">Term:</span> Term I (2026)</div>
+                        </div>
+                    </div>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ACADEMIC SUBJECT</th>
+                                <th>MIDTERM (40%)</th>
+                                <th>EOT (60%)</th>
+                                <th>COMBINED TOTAL</th>
+                                <th>GRADE</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsBuilder.toString()}
+                        </tbody>
+                    </table>
+                    
+                    <div class="summary-sec">
+                        <div class="metrics">
+                            <div class="info-item"><span class="info-label">Total Subjects Evaluated:</span> $countSubjects</div>
+                            <div class="info-item"><span class="info-label">Combined Average Mark:</span> ${String.format(java.util.Locale.US, "%.2f%%", avgScore)}</div>
+                            ${if (!isNursery) "<div class=\"info-item\"><span class=\"bold\">Termly Outturn:</span> $divisionStr</div>" else ""}
+                        </div>
+                        $feesHtml
+                    </div>
+                    
+                    <div class="remarks-box">
+                        <div class="remark-item"><span class="bold">Class Teacher's Remark:</span> $defaultTeacherRemark</div>
+                        <div class="remark-item"><span class="bold">Headteacher's Comments:</span> $defaultHeadRemark</div>
+                    </div>
+                    
+                    <div class="footer-row">
+                        <div class="signature-box">
+                            Nabakooza Sarah<br>
+                            <span style="color: grey; font-size: 11px;">HEADTEACHER SIGNATURE</span>
+                        </div>
+                        <div class="stamp">
+                            <span>OFFICIAL</span>
+                            <span style="font-size: 9px; margin: 2px 0;">PEARL</span>
+                            <span>STAMP</span>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val sanitizedName = pupil.name.replace(" ", "_").replace("(", "").replace(")", "").replace(".", "")
+        val fileName = "${sanitizedName}_ReportCard.pdf"
+
+        try {
+            var pfd: android.os.ParcelFileDescriptor? = null
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/Pearl_Junior_School_Reports")
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    pfd = resolver.openFileDescriptor(uri, "rw")
+                }
+            } else {
+                val downloadsDir = java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                    "Pearl_Junior_School_Reports"
+                )
+                if (!downloadsDir.exists()) downloadsDir.mkdirs()
+                val file = java.io.File(downloadsDir, fileName)
+                pfd = android.os.ParcelFileDescriptor.open(
+                    file,
+                    android.os.ParcelFileDescriptor.MODE_READ_WRITE or android.os.ParcelFileDescriptor.MODE_CREATE or android.os.ParcelFileDescriptor.MODE_TRUNCATE
+                )
+            }
+
+            if (pfd != null) {
+                val webView = android.webkit.WebView(context)
+                webView.settings.javaScriptEnabled = true
+                webView.loadDataWithBaseURL(null, htmlContent, "text/html", "utf-8", null)
+                val finalPfd = pfd
+                webView.webViewClient = object : android.webkit.WebViewClient() {
+                    override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                        try {
+                            val printAdapter = webView.createPrintDocumentAdapter("Report_${sanitizedName}")
+                            val printAttributes = android.print.PrintAttributes.Builder()
+                                .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
+                                .setResolution(android.print.PrintAttributes.Resolution("pdf", "pdf", 600, 600))
+                                .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
+                                .build()
+
+                            android.print.PdfHelper.savePdfFromAdapter(
+                                printAdapter,
+                                printAttributes,
+                                finalPfd,
+                                object : android.print.PdfHelper.Callback {
+                                    override fun onSuccess() {
+                                        try { finalPfd.close() } catch (e: Exception) {}
+                                        currentIndex++
+                                        processNext()
+                                    }
+
+                                    override fun onFailure() {
+                                        try { finalPfd.close() } catch (e: Exception) {}
+                                        currentIndex++
+                                        processNext()
+                                    }
+                                }
+                            )
+                        } catch (t: Throwable) {
+                            t.printStackTrace()
+                            try { finalPfd.close() } catch (e: Exception) {}
+                            currentIndex++
+                            processNext()
+                        }
+                    }
+                }
+            } else {
+                currentIndex++
+                processNext()
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            currentIndex++
+            processNext()
+        }
+    }
+
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+        processNext()
     }
 }
 
@@ -7968,6 +10194,47 @@ fun TimetablePlannerScreen(viewModel: SchoolViewModel) {
             )
         }
     }
+}
+
+fun parseTimeToMinutes(timeStr: String): Int {
+    val clean = timeStr.trim().uppercase()
+    var hours = 0
+    var minutes = 0
+    try {
+        if (clean.contains("AM") || clean.contains("PM")) {
+            val isPm = clean.contains("PM")
+            val numbersOnly = clean.replace("AM", "").replace("PM", "").replace(" ", "").trim()
+            val parts = numbersOnly.split(":")
+            if (parts.isNotEmpty()) {
+                var h = parts[0].trim().toIntOrNull() ?: 0
+                val m = if (parts.size > 1) parts[1].trim().toIntOrNull() ?: 0 else 0
+                if (isPm) {
+                    if (h < 12) h += 12
+                } else {
+                    if (h == 12) h = 0
+                }
+                hours = h
+                minutes = m
+            }
+        } else {
+            val parts = clean.split(":")
+            if (parts.isNotEmpty()) {
+                hours = parts[0].trim().toIntOrNull() ?: 0
+                minutes = if (parts.size > 1) parts[1].trim().toIntOrNull() ?: 0 else 0
+            }
+        }
+    } catch (e: Exception) {
+        // Fallback
+    }
+    return hours * 60 + minutes
+}
+
+fun timesOverlap(start1: String, end1: String, start2: String, end2: String): Boolean {
+    val s1 = parseTimeToMinutes(start1)
+    val e1 = parseTimeToMinutes(end1)
+    val s2 = parseTimeToMinutes(start2)
+    val e2 = parseTimeToMinutes(end2)
+    return s1 < e2 && s2 < e1
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -8382,15 +10649,78 @@ fun TimetableTabContent(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    val finalTeacher = if (formTeacherName.isBlank()) "Alternative Assignment" else formTeacherName
+
+                    // 1. Classroom booking overlap check
+                    val classroomConflict = remember(formClass, formDay, formStartHour, formEndHour, timetableList) {
+                        timetableList.find {
+                            it.dayOfWeek.equals(formDay, ignoreCase = true) &&
+                            it.className.equals(formClass, ignoreCase = true) &&
+                            timesOverlap(it.startTime, it.endTime, formStartHour, formEndHour)
+                        }
+                    }
+
+                    // 2. Teacher booking overlap check
+                    val teacherConflict = remember(finalTeacher, formDay, formStartHour, formEndHour, timetableList) {
+                        timetableList.find {
+                            it.dayOfWeek.equals(formDay, ignoreCase = true) &&
+                            it.teacherName.equals(finalTeacher, ignoreCase = true) &&
+                            timesOverlap(it.startTime, it.endTime, formStartHour, formEndHour)
+                        }
+                    }
+
+                    if (classroomConflict != null || teacherConflict != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("dialog_conflict_error_card")
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "🚨 Scheduling Conflict Detected",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                if (classroomConflict != null) {
+                                    Text(
+                                        text = "• Classroom ($formClass) is already booked for '${classroomConflict.subjectName}' from ${classroomConflict.startTime} - ${classroomConflict.endTime}.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                if (teacherConflict != null) {
+                                    Text(
+                                        text = "• Teacher ($finalTeacher) is already scheduled in Classroom ${teacherConflict.className} for '${teacherConflict.subjectName}' from ${teacherConflict.startTime} - ${teacherConflict.endTime}.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
+                val finalTeacher = if (formTeacherName.isBlank()) "Alternative Assignment" else formTeacherName
+                val hasConflict = timetableList.any {
+                    it.dayOfWeek.equals(formDay, ignoreCase = true) && (
+                        (it.className.equals(formClass, ignoreCase = true) && timesOverlap(it.startTime, it.endTime, formStartHour, formEndHour)) ||
+                        (it.teacherName.equals(finalTeacher, ignoreCase = true) && timesOverlap(it.startTime, it.endTime, formStartHour, formEndHour))
+                    )
+                }
+
                 Button(
                     onClick = {
-                        val finalTeacher = if (formTeacherName.isBlank()) "Alternative Assignment" else formTeacherName
                         onAddPeriod(formClass, formSubject, formDay, formStartHour, formEndHour, finalTeacher)
                         showAddDialog = false
-                    }
+                    },
+                    enabled = !hasConflict,
+                    modifier = Modifier.testTag("dialog_save_period_btn")
                 ) {
                     Text("Save Period")
                 }
@@ -9154,12 +11484,44 @@ fun ParentPortalScreen(viewModel: SchoolViewModel) {
                         }
                     }
                     
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!selectedStudent.isReportCardPublished) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().testTag("unpublished_report_card_alert"),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Text(
+                                    "Report Cards Awaiting Publication",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    "The school administrative council has not officially released or signed off on the terminal grade reports for ${selectedStudent.gradeLevel} yet. An automated SMS dispatch will be delivered to your phone number (${selectedStudent.phone}) instantly upon official release.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -9188,6 +11550,9 @@ fun ParentPortalScreen(viewModel: SchoolViewModel) {
                                             val formattedAmount = String.format(Locale.US, "%,.0f", outstandingFee)
                                             val feesSummary = if (outstandingFee <= 0) "FULLY PAID" else "UGX " + formattedAmount + " DUE"
                                             
+                                            val posInfo = calculateStudentPosition(selectedStudent.id, selectedStudent.gradeLevel, studentsList, gradesList)
+                                            val positionStr = "${posInfo.first} of ${posInfo.second}"
+
                                             exportReportCard(
                                                 context = context,
                                                 pupil = selectedStudent,
@@ -9198,7 +11563,8 @@ fun ParentPortalScreen(viewModel: SchoolViewModel) {
                                                 avgScore = avgScore,
                                                 division = divisionStr,
                                                 feesSummary = feesSummary,
-                                                format = "HTML"
+                                                format = "HTML",
+                                                position = positionStr
                                             )
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -9255,6 +11621,7 @@ fun ParentPortalScreen(viewModel: SchoolViewModel) {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -10015,6 +12382,1311 @@ fun AuthGateScreen(viewModel: SchoolViewModel) {
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun FeeTrackingScreen(viewModel: SchoolViewModel) {
+    val students by viewModel.students.collectAsStateWithLifecycle()
+    val feesStats by viewModel.totalFeesStats.collectAsStateWithLifecycle()
+    val feePaymentsList by viewModel.feePayments.collectAsStateWithLifecycle()
+
+    var activeFeeTab by remember { mutableStateOf(0) } // 0: Pupil Balances, 1: Transaction Ledger
+
+    var searchQuery by remember { mutableStateOf("") }
+    var classFilter by remember { mutableStateOf("All Classes") }
+    var statusFilter by remember { mutableStateOf("All") } // "All", "Cleared", "Outstanding", "Unpaid"
+
+    var selectedStudentForPayment by remember { mutableStateOf<Student?>(null) }
+    var paymentAmountInput by remember { mutableStateOf("") }
+
+    var selectedStudentForLedger by remember { mutableStateOf<Student?>(null) }
+    var ledgerAmountInput by remember { mutableStateOf("") }
+    var ledgerNotesInput by remember { mutableStateOf("") }
+
+    // Detailed/Custom Payment dialog states
+    var showDetailedPaymentDialog by remember { mutableStateOf(false) }
+    var detailedStudentSelection by remember { mutableStateOf<Student?>(null) }
+    var detailedDateInput by remember { mutableStateOf("2026-06-18") }
+    var detailedAmountInput by remember { mutableStateOf("") }
+    var detailedNotesInput by remember { mutableStateOf("") }
+    var detailedStudentExpanded by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+
+    // Extract all unique gradeLevels for filter
+    val classesList = remember(students) {
+        listOf("All Classes") + students.map { it.gradeLevel }.distinct().sorted()
+    }
+
+    // Filter students
+    val filteredStudents = remember(students, searchQuery, classFilter, statusFilter) {
+        students.filter { student ->
+            // Search
+            val matchesSearch = student.name.contains(searchQuery, ignoreCase = true) ||
+                    student.rollNumber.contains(searchQuery, ignoreCase = true)
+            
+            // Class Filter
+            val matchesClass = classFilter == "All Classes" || student.gradeLevel == classFilter
+
+            // Status Filter
+            val outstanding = student.feesTotal - student.feesPaid
+            val matchesStatus = when (statusFilter) {
+                "Cleared" -> outstanding <= 0
+                "Outstanding" -> outstanding > 0 && student.feesPaid > 0
+                "Unpaid" -> student.feesPaid <= 0
+                else -> true
+            }
+
+            matchesSearch && matchesClass && matchesStatus
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize().testTag("fee_tracking_screen"),
+        floatingActionButton = {
+            if (activeFeeTab == 0) {
+                FloatingActionButton(
+                    onClick = {
+                        detailedStudentSelection = null
+                        detailedAmountInput = ""
+                        detailedNotesInput = ""
+                        detailedDateInput = "2026-06-18"
+                        showDetailedPaymentDialog = true
+                    },
+                    modifier = Modifier.testTag("add_fee_record_fab")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Text("Add Fee Record", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Title & Concept description
+            item {
+                Column {
+                    Text(
+                        text = "Finance & Tuition Registrar (UGX)",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Track, report, and record tuition fee payments in UGX with precision.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Tab selection
+            item {
+                TabRow(
+                    selectedTabIndex = activeFeeTab,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    divider = {}
+                ) {
+                    Tab(
+                        selected = activeFeeTab == 0,
+                        onClick = { activeFeeTab = 0 },
+                        text = { Text("Pupil Balances", fontWeight = FontWeight.Bold) },
+                        icon = { Icon(Icons.Default.AccountBalance, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    Tab(
+                        selected = activeFeeTab == 1,
+                        onClick = { activeFeeTab = 1 },
+                        text = { Text("Transaction Ledger", fontWeight = FontWeight.Bold) },
+                        icon = { Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                }
+            }
+
+            if (activeFeeTab == 0) {
+                // Key Finance Cards Row (KPI Stats)
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Total Expected Card
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalance,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Expected",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                                Text(
+                                    String.format(java.util.Locale.US, "UGX %,.0f", feesStats.totalExpected),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+
+                        // Total Collected Card
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)) // Green tint
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2E7D32),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Collected",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF2E7D32)
+                                )
+                                Text(
+                                    String.format(java.util.Locale.US, "UGX %,.0f", feesStats.totalCollected),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1B5E20)
+                                )
+                            }
+                        }
+
+                        // Total Outstanding Card
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)) // Red/pink tint
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = Color(0xFFC62828),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Outstanding",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFFC62828)
+                                )
+                                Text(
+                                    String.format(java.util.Locale.US, "UGX %,.0f", feesStats.remainingBalance),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB71C1C)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Simulated Automated SMS Settings
+                item {
+                    val automaticSmsEnabled by viewModel.isAutomatedFeeSmsEnabled.collectAsStateWithLifecycle()
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("automated_sms_gateway_card"),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(
+                                        imageVector = Icons.Default.Sms,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        "Automated Parent SMS Alerts",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "Simulates real-time telecom gateway dispatch to parents instantly when a tuition fee payment is registered.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = automaticSmsEnabled,
+                                onCheckedChange = { viewModel.setAutomatedFeeSmsEnabled(it) },
+                                modifier = Modifier.testTag("automated_fee_sms_switch")
+                            )
+                        }
+                    }
+                }
+
+                // Search Bar & Filter Controls
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            // Search Field
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                label = { Text("Search Pupil Name / Roll No.") },
+                                placeholder = { Text("Type name or roll number...") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth().testTag("fee_search_input")
+                            )
+
+                            // Filters Headers Row
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Class Filter Dropdown Trigger
+                                var classExpanded by remember { mutableStateOf(false) }
+                                Box {
+                                    OutlinedButton(
+                                        onClick = { classExpanded = true },
+                                        modifier = Modifier.height(42.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = classFilter,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 1
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = classExpanded,
+                                        onDismissRequest = { classExpanded = false }
+                                    ) {
+                                        classesList.forEach { cls ->
+                                            DropdownMenuItem(
+                                                text = { Text(cls, style = MaterialTheme.typography.bodyMedium) },
+                                                onClick = {
+                                                    classFilter = cls
+                                                    classExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Status Filter Segmented Selector Row
+                                listOf("All", "Cleared", "Outstanding", "Unpaid").forEach { opt ->
+                                    val selected = statusFilter == opt
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = { statusFilter = opt },
+                                        label = { Text(opt, fontSize = 11.sp) },
+                                        modifier = Modifier.height(42.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Results count
+                item {
+                    Text(
+                        text = "Showing ${filteredStudents.size} students",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Students with outstanding balances items
+                if (filteredStudents.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Text(
+                                    "No pupils match selected filters.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(filteredStudents.size) { idx ->
+                        val student = filteredStudents[idx]
+                        val outstanding = student.feesTotal - student.feesPaid
+                        val percentCleared = if (student.feesTotal > 0) (student.feesPaid / student.feesTotal).toFloat() else 1f
+
+                        val statusLabel = when {
+                            outstanding <= 0 -> "Cleared"
+                            student.feesPaid > 0 -> "Outstanding Balance"
+                            else -> "Fully Unpaid"
+                        }
+
+                        val badgeColor = when {
+                            outstanding <= 0 -> Color(0xFF2E7D32) // green
+                            student.feesPaid > 0 -> Color(0xFFF57C00) // orange
+                            else -> Color(0xFFD32F2F) // red
+                        }
+
+                        val badgeBg = when {
+                            outstanding <= 0 -> Color(0xFFE8F5E9)
+                            student.feesPaid > 0 -> Color(0xFFFFF3E0)
+                            else -> Color(0xFFFFEBEE)
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("fee_student_card_${student.id}"),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                // Student name & class
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = student.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            SuggestionChip(
+                                                onClick = {},
+                                                label = { Text(student.gradeLevel, fontSize = 10.sp) },
+                                                modifier = Modifier.height(24.dp)
+                                            )
+                                            Text(
+                                                text = "Roll: ${student.rollNumber}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
+
+                                    // Status Badge
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = badgeBg),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = statusLabel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = badgeColor,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // Sizing/Numbers info
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column {
+                                        Text("PAID", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        Text(
+                                            text = String.format(java.util.Locale.US, "UGX %,.0f", student.feesPaid),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2E7D32)
+                                        )
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("TOTAL TUITION", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        Text(
+                                            text = String.format(java.util.Locale.US, "UGX %,.0f", student.feesTotal),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("OUTSTANDING", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        Text(
+                                            text = String.format(java.util.Locale.US, "UGX %,.0f", outstanding),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (outstanding > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Payment Progress bar
+                                LinearProgressIndicator(
+                                    progress = { percentCleared },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                    color = if (outstanding <= 0) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.outlineVariant
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Pay and view statement action buttons
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedStudentForLedger = student
+                                            ledgerAmountInput = ""
+                                            ledgerNotesInput = ""
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(36.dp).testTag("view_student_ledger_btn_${student.id}"),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.List,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "View Ledger",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            selectedStudentForPayment = student
+                                            paymentAmountInput = ""
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (outstanding <= 0) MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.primary,
+                                            contentColor = if (outstanding <= 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(36.dp).testTag("record_payment_btn_${student.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Payments,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (outstanding <= 0) "Record Another Payment" else "Record Payment (UGX)",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // ACTIVE TAB == 1: Detailed payments ledger view
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Payments,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    "Historic Payment Audit Logs",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Direct receipt log reflecting accurate student ledger audit.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (feePaymentsList.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(32.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color.LightGray,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Text(
+                                    "No transaction logs found.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.Gray
+                                )
+                                Text(
+                                    "Click 'Add Fee Record' or use the student payment option to populate ledger.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.LightGray
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(feePaymentsList.size) { logIdx ->
+                        val payment = feePaymentsList[logIdx]
+                        val matchingStudent = students.find { it.id == payment.studentId }
+                        val studentName = matchingStudent?.name ?: "Unknown Pupil (ID: ${payment.studentId})"
+                        val studentGrade = matchingStudent?.gradeLevel ?: "N/A"
+                        val rollNo = matchingStudent?.rollNumber ?: "N/A"
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth().testTag("fee_payment_log_${payment.id}"),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = studentName,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    ) {
+                                        Text("Roll: $rollNo", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                        Text("•", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                                        Text("Grade: $studentGrade", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.Gray)
+                                        Text(payment.paymentDate, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                        if (payment.notes.isNotBlank()) {
+                                            Text("•", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+                                            Text(payment.notes, style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "UGX " + String.format(java.util.Locale.US, "%,.0f", payment.amount),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.deleteFeePayment(payment)
+                                            android.widget.Toast.makeText(context, "Payment record voided, student balance updated.", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Void Record",
+                                            tint = Color(0xFFC62828)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Detailed Custom Fee Record Dialog (Floating FAB)
+    if (showDetailedPaymentDialog) {
+        AlertDialog(
+            onDismissRequest = { showDetailedPaymentDialog = false },
+            title = {
+                Text(
+                    text = "Add Custom Fee Record",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Input the specific Pupil, Date of Transaction, and Amount in UGX to adjust ledger standings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+
+                    // 1. Selector for Student
+                    Box(modifier = Modifier.fillMaxWidth().clickable { detailedStudentExpanded = true }) {
+                        OutlinedTextField(
+                            value = detailedStudentSelection?.let { "${it.name} (Roll: ${it.rollNumber})" } ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text("Select Student*") },
+                            placeholder = { Text("Tap to select pupil...") },
+                            trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                disabledBorderColor = MaterialTheme.colorScheme.outline
+                            )
+                        )
+
+                        DropdownMenu(
+                            expanded = detailedStudentExpanded,
+                            onDismissRequest = { detailedStudentExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.9f).heightIn(max = 280.dp)
+                        ) {
+                            students.forEach { std ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Column {
+                                            Text(std.name, fontWeight = FontWeight.Bold)
+                                            Text("Roll: ${std.rollNumber} | Grade: ${std.gradeLevel} | Bal: UGX ${String.format(java.util.Locale.US, "%,.0f", std.feesTotal - std.feesPaid)}", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                    },
+                                    onClick = {
+                                        detailedStudentSelection = std
+                                        detailedStudentExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Show outstanding balance for selection
+                    detailedStudentSelection?.let { std ->
+                        val bal = std.feesTotal - std.feesPaid
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Remaining Balance Due:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                Text(
+                                    text = "UGX " + String.format(java.util.Locale.US, "%,.0f", bal),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (bal > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Date Input
+                    OutlinedTextField(
+                        value = detailedDateInput,
+                        onValueChange = { detailedDateInput = it },
+                        label = { Text("Transaction Date (yyyy-MM-dd)*") },
+                        placeholder = { Text("e.g. 2026-06-18") },
+                        leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    // 3. Amount Input in UGX
+                    OutlinedTextField(
+                        value = detailedAmountInput,
+                        onValueChange = { input ->
+                            if (input.all { it.isDigit() }) {
+                                detailedAmountInput = input
+                            }
+                        },
+                        label = { Text("Amount Paid (UGX)*") },
+                        placeholder = { Text("e.g. 250000") },
+                        leadingIcon = { Text("UGX", fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.padding(start = 12.dp)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth().testTag("detailed_amount_input"),
+                        singleLine = true
+                    )
+
+                    // 4. Notes/Remarks Input
+                    OutlinedTextField(
+                        value = detailedNotesInput,
+                        onValueChange = { detailedNotesInput = it },
+                        label = { Text("Payment Notes / Receipt ID") },
+                        placeholder = { Text("e.g. Installment 1 / Receipt #045") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val student = detailedStudentSelection
+                        val amount = detailedAmountInput.toDoubleOrNull()
+                        val rawDate = detailedDateInput.trim()
+
+                        if (student == null) {
+                            android.widget.Toast.makeText(context, "Please select a student.", android.widget.Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (amount == null || amount <= 0) {
+                            android.widget.Toast.makeText(context, "Please enter a valid amount.", android.widget.Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (rawDate.isEmpty()) {
+                            android.widget.Toast.makeText(context, "Date is required.", android.widget.Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        // Save Detailed payment record
+                        viewModel.addDetailedFeePayment(
+                            studentId = student.id,
+                            paymentDate = rawDate,
+                            amount = amount,
+                            notes = detailedNotesInput.trim()
+                        )
+
+                        android.widget.Toast.makeText(
+                            context,
+                            "Fee record added and pupil statement reconciled successfully!",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                        
+                        showDetailedPaymentDialog = false
+                    },
+                    modifier = Modifier.testTag("dialog_submit_detailed_fee_btn")
+                ) {
+                    Text("Add Payment Record")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDetailedPaymentDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Classic Record Payment Dialog (Quick Single-Student Collect Button)
+    selectedStudentForPayment?.let { student ->
+        val balance = student.feesTotal - student.feesPaid
+        AlertDialog(
+            onDismissRequest = { selectedStudentForPayment = null },
+            title = {
+                Text(
+                    text = "Record UGX Payment",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Adding tuition fee collection record for ${student.name} (${student.gradeLevel}).",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Outstanding balance:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "UGX %,.0f", balance),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (balance > 0) Color(0xFFC62828) else Color(0xFF2E7D32)
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = paymentAmountInput,
+                        onValueChange = { input ->
+                            // Allow only numeric input
+                            if (input.all { it.isDigit() }) {
+                                paymentAmountInput = input
+                            }
+                        },
+                        label = { Text("Payment Amount (UGX)") },
+                        placeholder = { Text("e.g. 150000") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        leadingIcon = { Text("UGX", fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.padding(start = 12.dp, end = 4.dp)) },
+                        modifier = Modifier.fillMaxWidth().testTag("payment_amount_input"),
+                        singleLine = true
+                    )
+
+                    // Suggestion Chip Amounts
+                    Text("Or select quick UGX amount:", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val quickAmounts = listOf("50000", "100000", "200000", "500000")
+                        quickAmounts.forEach { amt ->
+                            val displayAmt = when (amt) {
+                                "50000" -> "50K"
+                                "100000" -> "100K"
+                                "200000" -> "200K"
+                                "500000" -> "500K"
+                                else -> amt
+                            }
+                            InputChip(
+                                selected = paymentAmountInput == amt,
+                                onClick = { paymentAmountInput = amt },
+                                label = { Text(displayAmt, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amount = paymentAmountInput.toDoubleOrNull()
+                        if (amount != null && amount > 0) {
+                            viewModel.addFeePayment(student.id, amount)
+                            android.widget.Toast.makeText(
+                                context,
+                                "Successfully recorded payment of UGX ${String.format(java.util.Locale.US, "%,.0f", amount)} for ${student.name}!",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            android.widget.Toast.makeText(context, "Please enter a valid payment amount.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        selectedStudentForPayment = null
+                    },
+                    modifier = Modifier.testTag("dialog_confirm_payment_btn")
+                ) {
+                    Text("Confirm Payment")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedStudentForPayment = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    selectedStudentForLedger?.let { student ->
+        // Because the student object from list has stale feesPaid if we just added a payment in this dialog,
+        // let's fetch the freshest student object from the state list by matching the ID!
+        val liveStudent = students.find { it.id == student.id } ?: student
+        val outstanding = liveStudent.feesTotal - liveStudent.feesPaid
+        val isCleared = outstanding <= 0
+
+        val matchingPayments = feePaymentsList.filter { it.studentId == liveStudent.id }
+
+        AlertDialog(
+            onDismissRequest = { selectedStudentForLedger = null },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBalance,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Student Fee Statement Ledger",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)
+                ) {
+                    // Profile Info Header Card
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.2f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = liveStudent.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Roll ID: ${liveStudent.rollNumber} • Class: ${liveStudent.gradeLevel}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                    if (liveStudent.phone.isNotBlank()) {
+                                        Text(
+                                            text = "Parent Tel: ${liveStudent.phone}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+                                
+                                // Clean Status indicator
+                                Surface(
+                                    color = if (isCleared) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                    shape = RoundedCornerShape(24.dp),
+                                    border = BorderStroke(1.dp, if (isCleared) Color(0xFF2E7D32) else Color(0xFFC62828)),
+                                    modifier = Modifier.padding(start = 4.dp)
+                                ) {
+                                    Text(
+                                        text = if (isCleared) "Fully Paid" else "Outstanding Balance",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCleared) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Consolidated balances row metrics
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Target tuition set balance
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.Start) {
+                                    Text("Set Tuition Due", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "UGX %,.0f", liveStudent.feesTotal),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+
+                            // Fees Paid Credits
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                                border = BorderStroke(0.5.dp, Color(0xFF81C784))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.Start) {
+                                    Text("UGX Paid to Date", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32))
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "UGX %,.0f", liveStudent.feesPaid),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1B5E20)
+                                    )
+                                }
+                            }
+
+                            // Settle balance remaining
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(containerColor = if (isCleared) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)),
+                                border = BorderStroke(0.5.dp, if (isCleared) Color(0xFF81C784) else Color(0xFFE57373))
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.Start) {
+                                    Text("UGX Outstanding", style = MaterialTheme.typography.labelSmall, color = if (isCleared) Color(0xFF2E7D32) else Color(0xFFC62828))
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "UGX %,.0f", outstanding.coerceAtLeast(0.0)),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCleared) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section Title: Payment transactions Chronological
+                    item {
+                        Text(
+                            text = "RECEIPT CHRONOLOGY",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+
+                    if (matchingPayments.isEmpty()) {
+                        item {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Text(
+                                    text = "No recorded fee collection transactions for this student.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.padding(16.dp).fillMaxWidth()
+                                )
+                            }
+                        }
+                    } else {
+                        items(matchingPayments.size) { pmIdx ->
+                            val payment = matchingPayments[pmIdx]
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "UGX " + String.format(java.util.Locale.US, "%,.0f", payment.amount),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF1B5E20)
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(11.dp), tint = Color.Gray)
+                                            Text(payment.paymentDate, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                            if (payment.notes.isNotBlank()) {
+                                                Text("•", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+                                                Text(payment.notes, style = MaterialTheme.typography.labelSmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.deleteFeePayment(payment)
+                                            android.widget.Toast.makeText(context, "Payment statement voided.", android.widget.Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Void Receipt",
+                                            tint = Color(0xFFC62828),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section Title: Add direct payment inside the ledger UI
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            text = "RECORD NEW PAYMENT ON-ACCOUNT",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray
+                        )
+                    }
+
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = ledgerAmountInput,
+                                    onValueChange = { input ->
+                                        if (input.all { it.isDigit() }) ledgerAmountInput = input
+                                    },
+                                    label = { Text("UGX Payment Amount", fontSize = 11.sp) },
+                                    placeholder = { Text("e.g. 250000") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    leadingIcon = { Text("UGX", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 11.sp, modifier = Modifier.padding(start = 8.dp, end = 2.dp)) },
+                                    modifier = Modifier.fillMaxWidth().heightIn(max = 56.dp),
+                                    singleLine = true
+                                )
+
+                                OutlinedTextField(
+                                    value = ledgerNotesInput,
+                                    onValueChange = { ledgerNotesInput = it },
+                                    label = { Text("Notes / Receipt ID / Bank Slip No.", fontSize = 11.sp) },
+                                    placeholder = { Text("e.g. Bank Slip #903") },
+                                    modifier = Modifier.fillMaxWidth().heightIn(max = 56.dp),
+                                    singleLine = true
+                                )
+
+                                Button(
+                                    onClick = {
+                                        val amt = ledgerAmountInput.toDoubleOrNull()
+                                        if (amt == null || amt <= 0) {
+                                            android.widget.Toast.makeText(context, "Please input a valid amount to record.", android.widget.Toast.LENGTH_SHORT).show()
+                                            return@Button
+                                        }
+
+                                        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                                        viewModel.addDetailedFeePayment(
+                                            studentId = liveStudent.id,
+                                            paymentDate = today,
+                                            amount = amt,
+                                            notes = ledgerNotesInput.trim().ifEmpty { "Ledger Deposit" }
+                                        )
+
+                                        android.widget.Toast.makeText(context, "Payment recorded! Ledger statement updated successfully.", android.widget.Toast.LENGTH_SHORT).show()
+                                        ledgerAmountInput = ""
+                                        ledgerNotesInput = ""
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(38.dp).testTag("dialog_ledger_quick_pay_btn")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Payments,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Post & Reconcile Payment", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { selectedStudentForLedger = null }
+                ) {
+                    Text("Close Ledger")
+                }
+            }
+        )
     }
 }
 

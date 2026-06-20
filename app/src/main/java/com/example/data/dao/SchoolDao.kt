@@ -159,6 +159,9 @@ interface SchoolDao {
     @Query("DELETE FROM timetable_periods WHERE id = :id")
     suspend fun deleteTimetablePeriod(id: Int)
 
+    @Query("DELETE FROM timetable_periods")
+    suspend fun deleteAllTimetablePeriods()
+
     // --- School Event Queries ---
     @Query("SELECT * FROM school_events ORDER BY eventDate ASC")
     fun getAllSchoolEvents(): Flow<List<SchoolEvent>>
@@ -191,5 +194,46 @@ interface SchoolDao {
 
     @Query("DELETE FROM lesson_tracks WHERE id = :id")
     suspend fun deleteLessonTrack(id: Int)
+
+    // --- Fee Payment Queries ---
+    @Query("SELECT * FROM fee_payments ORDER BY paymentDate DESC, id DESC")
+    fun getAllFeePayments(): Flow<List<FeePayment>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFeePayment(payment: FeePayment): Long
+
+    @Query("DELETE FROM fee_payments WHERE id = :id")
+    suspend fun deleteFeePayment(id: Int)
+
+    // --- Library Queries ---
+    @Query("SELECT * FROM books ORDER BY title ASC")
+    fun getAllBooks(): Flow<List<Book>>
+
+    @Query("SELECT * FROM books WHERE id = :id")
+    fun getBookById(id: Int): Flow<Book?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBook(book: Book): Long
+
+    @Update
+    suspend fun updateBook(book: Book)
+
+    @Delete
+    suspend fun deleteBook(book: Book)
+
+    @Query("SELECT * FROM book_checkouts ORDER BY checkoutDate DESC, id DESC")
+    fun getAllCheckouts(): Flow<List<BookCheckout>>
+
+    @Query("SELECT * FROM book_checkouts WHERE studentId = :studentId ORDER BY checkoutDate DESC")
+    fun getCheckoutsForStudent(studentId: Int): Flow<List<BookCheckout>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCheckout(checkout: BookCheckout): Long
+
+    @Update
+    suspend fun updateCheckout(checkout: BookCheckout)
+
+    @Delete
+    suspend fun deleteCheckout(checkout: BookCheckout)
 
 }

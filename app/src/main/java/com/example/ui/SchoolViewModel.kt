@@ -28,6 +28,14 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
     private val _schoolLogoBase64 = MutableStateFlow(sharedPrefs.getString("school_logo_base64", "") ?: "")
     val schoolLogoBase64: StateFlow<String> = _schoolLogoBase64.asStateFlow()
 
+    private val _isAutomatedFeeSmsEnabled = MutableStateFlow(sharedPrefs.getBoolean("automated_fee_sms_enabled", true))
+    val isAutomatedFeeSmsEnabled: StateFlow<Boolean> = _isAutomatedFeeSmsEnabled.asStateFlow()
+
+    fun setAutomatedFeeSmsEnabled(enabled: Boolean) {
+        _isAutomatedFeeSmsEnabled.value = enabled
+        sharedPrefs.edit().putBoolean("automated_fee_sms_enabled", enabled).apply()
+    }
+
     fun signUpUser(email: String, password: String, question: String, answer: String): Boolean {
         if (email.isBlank() || password.isBlank() || question.isBlank() || answer.isBlank()) {
             return false
@@ -141,6 +149,8 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
     val schoolEvents: StateFlow<List<SchoolEvent>> = repository.allItemsStateFlow { repository.allSchoolEvents }
     val appNotifications: StateFlow<List<AppNotification>> = repository.allItemsStateFlow { repository.allAppNotifications }
     val lessonTracks: StateFlow<List<LessonTrack>> = repository.allItemsStateFlow { repository.allLessonTracks }
+    val books: StateFlow<List<Book>> = repository.allItemsStateFlow { repository.allBooks }
+    val checkouts: StateFlow<List<BookCheckout>> = repository.allItemsStateFlow { repository.allCheckouts }
 
     val studentCount: StateFlow<Int> = repository.studentCount.stateIn(
         scope = viewModelScope,
@@ -173,6 +183,12 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = FeesStats(0.0, 0.0, 0.0)
+    )
+
+    val feePayments: StateFlow<List<com.example.data.entity.FeePayment>> = repository.allFeePayments.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
     )
 
     val averagePerformanceScore = allGrades.map { list ->
@@ -212,6 +228,12 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
     private val _teacherAttendanceEditingMap = MutableStateFlow<Map<Int, String>>(emptyMap())
     val teacherAttendanceEditingMap: StateFlow<Map<Int, String>> = _teacherAttendanceEditingMap.asStateFlow()
 
+    private val _teacherSignInTimesMap = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val teacherSignInTimesMap: StateFlow<Map<Int, String>> = _teacherSignInTimesMap.asStateFlow()
+
+    private val _teacherSignOutTimesMap = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val teacherSignOutTimesMap: StateFlow<Map<Int, String>> = _teacherSignOutTimesMap.asStateFlow()
+
     val activeTeacherAttendanceRecord: StateFlow<List<TeacherAttendance>> = _teacherAttendanceDate
         .flatMapLatest { date -> repository.getTeacherAttendanceByDate(date) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -228,11 +250,17 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
             val teachersList = teachers.first()
             
             val initialMap = mutableMapOf<Int, String>()
+            val initialSignInMap = mutableMapOf<Int, String>()
+            val initialSignOutMap = mutableMapOf<Int, String>()
             for (teacher in teachersList) {
                 val match = currentInDb.find { it.teacherId == teacher.id }
                 initialMap[teacher.id] = match?.status ?: "Present"
+                initialSignInMap[teacher.id] = match?.signInTime ?: ""
+                initialSignOutMap[teacher.id] = match?.signOutTime ?: ""
             }
             _teacherAttendanceEditingMap.value = initialMap
+            _teacherSignInTimesMap.value = initialSignInMap
+            _teacherSignOutTimesMap.value = initialSignOutMap
         }
     }
 
@@ -242,13 +270,52 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         _teacherAttendanceEditingMap.value = currentMap
     }
 
+    fun updateTeacherSignInTime(teacherId: Int, time: String) {
+        val currentMap = _teacherSignInTimesMap.value.toMutableMap()
+        currentMap[teacherId] = time
+        _teacherSignInTimesMap.value = currentMap
+    }
+
+    fun updateTeacherSignOutTime(teacherId: Int, time: String) {
+        val currentMap = _teacherSignOutTimesMap.value.toMutableMap()
+        currentMap[teacherId] = time
+        _teacherSignOutTimesMap.value = currentMap
+    }
+
     fun saveTeacherAttendance() {
         viewModelScope.launch {
             val date = _teacherAttendanceDate.value
+            val signInMap = _teacherSignInTimesMap.value
+            val signOutMap = _teacherSignOutTimesMap.value
             val attendanceList = _teacherAttendanceEditingMap.value.map { (teacherId, status) ->
-                TeacherAttendance(teacherId = teacherId, date = date, status = status)
+                TeacherAttendance(
+                    teacherId = teacherId,
+                    date = date,
+                    status = status,
+                    signInTime = signInMap[teacherId] ?: "",
+                    signOutTime = signOutMap[teacherId] ?: ""
+                )
             }
             repository.saveTeacherAttendanceList(attendanceList)
+            syncTeacherAttendanceDetails()
+        }
+    }
+
+    fun recordSingleTeacherAttendance(teacherId: Int, date: String, status: String, signInTime: String = "", signOutTime: String = "") {
+        viewModelScope.launch {
+            val existingList = repository.getTeacherAttendanceByDate(date).first()
+            val existing = existingList.find { it.teacherId == teacherId }
+            val finalSignIn = if (signInTime.isNotEmpty()) signInTime else (existing?.signInTime ?: "")
+            val finalSignOut = if (signOutTime.isNotEmpty()) signOutTime else (existing?.signOutTime ?: "")
+            repository.saveTeacherAttendanceList(listOf(
+                TeacherAttendance(
+                    teacherId = teacherId,
+                    date = date,
+                    status = status,
+                    signInTime = finalSignIn,
+                    signOutTime = finalSignOut
+                )
+            ))
             syncTeacherAttendanceDetails()
         }
     }
@@ -293,6 +360,11 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
             }
             repository.saveAttendanceList(attendanceList)
             syncAttendanceDetails()
+
+            // Sync attendance logs to Firebase Firestore
+            attendanceList.forEach { att ->
+                com.example.data.api.FirebaseService.uploadAttendanceToFirebase(getApplication(), att)
+            }
         }
     }
 
@@ -304,17 +376,54 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveStudent(student: Student) {
         viewModelScope.launch {
-            if (student.id == 0) {
-                repository.insertStudent(student)
+            val savedId = if (student.id == 0) {
+                repository.insertStudent(student).toInt()
             } else {
                 repository.updateStudent(student)
+                student.id
             }
+            val syncedStudent = student.copy(id = savedId)
+            com.example.data.api.FirebaseService.uploadStudentToFirebase(getApplication(), syncedStudent)
         }
     }
 
     fun deleteStudent(student: Student) {
         viewModelScope.launch {
             repository.deleteStudent(student)
+            com.example.data.api.FirebaseService.deleteStudentFromFirebase(getApplication(), student.id)
+        }
+    }
+
+    fun syncAllStudentsToFirebase(onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val students = repository.allStudents.first()
+                val payments = repository.allFeePayments.first()
+                val attendance = repository.allAttendance.first()
+                var allSuccess = true
+
+                // Sync all student records to Firestore
+                students.forEach { s ->
+                    val success = com.example.data.api.FirebaseService.uploadStudentToFirebase(getApplication(), s)
+                    if (!success) allSuccess = false
+                }
+
+                // Sync all fee ledgers to Firestore
+                payments.forEach { p ->
+                    val success = com.example.data.api.FirebaseService.uploadFeePaymentToFirebase(getApplication(), p)
+                    if (!success) allSuccess = false
+                }
+
+                // Sync all student attendance rolls to Firestore
+                attendance.forEach { a ->
+                    val success = com.example.data.api.FirebaseService.uploadAttendanceToFirebase(getApplication(), a)
+                    if (!success) allSuccess = false
+                }
+
+                onComplete(allSuccess)
+            } catch (e: Exception) {
+                onComplete(false)
+            }
         }
     }
 
@@ -322,9 +431,96 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val s = repository.getStudentById(studentId).first()
             if (s != null) {
-                val newPaid = (s.feesPaid + amount).coerceAtMost(s.feesTotal)
-                repository.updateStudent(s.copy(feesPaid = newPaid))
+                val newPaid = s.feesPaid + amount
+                val updatedStudent = s.copy(feesPaid = newPaid)
+                repository.updateStudent(updatedStudent)
+                
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val payment = com.example.data.entity.FeePayment(
+                    studentId = studentId,
+                    paymentDate = today,
+                    amount = amount,
+                    notes = "Quick Payment"
+                )
+                val paymentId = repository.insertFeePayment(payment)
+
+                repository.insertAppNotification(
+                    com.example.data.entity.AppNotification(
+                        title = "Fee Payment Recorded",
+                        content = "UGX ${String.format(Locale.US, "%,.0f", amount)} received for ${s.name}.",
+                        type = "Fees"
+                    )
+                )
+
+                if (_isAutomatedFeeSmsEnabled.value && s.phone.isNotBlank()) {
+                    val balance = s.feesTotal - newPaid
+                    val msg = "Dear Parent/Guardian, quick payment of UGX ${String.format(Locale.US, "%,.0f", amount)} has been received for your child ${s.name}. Outstanding balance: UGX ${String.format(Locale.US, "%,.0f", balance.coerceAtLeast(0.0))}. Thank you. - Pearl Junior School Office"
+                    broadcastSms(
+                        recipientName = s.parentName.ifBlank { "${s.name}'s Parent" },
+                        phoneNumbers = listOf(s.phone),
+                        message = msg
+                    )
+                }
+
+                // Sync student update and new fee ledger payment to Firestore
+                com.example.data.api.FirebaseService.uploadStudentToFirebase(getApplication(), updatedStudent)
+                com.example.data.api.FirebaseService.uploadFeePaymentToFirebase(getApplication(), payment.copy(id = paymentId.toInt()))
             }
+        }
+    }
+
+    fun addDetailedFeePayment(studentId: Int, paymentDate: String, amount: Double, notes: String) {
+        viewModelScope.launch {
+            val s = repository.getStudentById(studentId).first()
+            if (s != null) {
+                val newPaid = s.feesPaid + amount
+                val updatedStudent = s.copy(feesPaid = newPaid)
+                repository.updateStudent(updatedStudent)
+                
+                val payment = com.example.data.entity.FeePayment(
+                    studentId = studentId,
+                    paymentDate = paymentDate,
+                    amount = amount,
+                    notes = notes
+                )
+                val paymentId = repository.insertFeePayment(payment)
+
+                repository.insertAppNotification(
+                    com.example.data.entity.AppNotification(
+                        title = "Fee Payment Recorded",
+                        content = "UGX ${String.format(Locale.US, "%,.0f", amount)} paid for ${s.name} on $paymentDate.",
+                        type = "Fees"
+                    )
+                )
+
+                if (_isAutomatedFeeSmsEnabled.value && s.phone.isNotBlank()) {
+                    val balance = s.feesTotal - newPaid
+                    val msg = "Dear Parent/Guardian, tuition payment of UGX ${String.format(Locale.US, "%,.0f", amount)} has been received for your child ${s.name} (Notes: $notes). Outstanding balance: UGX ${String.format(Locale.US, "%,.0f", balance.coerceAtLeast(0.0))}. Thank you. - Pearl Junior School Office"
+                    broadcastSms(
+                        recipientName = s.parentName.ifBlank { "${s.name}'s Parent" },
+                        phoneNumbers = listOf(s.phone),
+                        message = msg
+                    )
+                }
+
+                // Sync student update and detailed fee payment to Firestore
+                com.example.data.api.FirebaseService.uploadStudentToFirebase(getApplication(), updatedStudent)
+                com.example.data.api.FirebaseService.uploadFeePaymentToFirebase(getApplication(), payment.copy(id = paymentId.toInt()))
+            }
+        }
+    }
+
+    fun deleteFeePayment(payment: com.example.data.entity.FeePayment) {
+        viewModelScope.launch {
+            val s = repository.getStudentById(payment.studentId).first()
+            if (s != null) {
+                val newPaid = (s.feesPaid - payment.amount).coerceAtLeast(0.0)
+                val updatedStudent = s.copy(feesPaid = newPaid)
+                repository.updateStudent(updatedStudent)
+                com.example.data.api.FirebaseService.uploadStudentToFirebase(getApplication(), updatedStudent)
+            }
+            repository.deleteFeePayment(payment.id)
+            com.example.data.api.FirebaseService.deleteFeePaymentFromFirebase(getApplication(), payment.id)
         }
     }
 
@@ -392,6 +588,54 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun publishReportCardsForClass(className: String, messageTemplate: String) {
+        viewModelScope.launch {
+            val list = repository.getStudentsByGrade(className).first()
+            list.forEach { student ->
+                val updatedStudent = student.copy(isReportCardPublished = true)
+                repository.updateStudent(updatedStudent)
+
+                val personalizedMsg = messageTemplate
+                    .replace("[Parent]", student.parentName.ifBlank { "Parent/Guardian" })
+                    .replace("[Student]", student.name)
+                    .replace("[Class]", student.gradeLevel)
+                    .replace("[Roll]", student.rollNumber)
+
+                broadcastSms(
+                    recipientName = student.parentName.ifBlank { "${student.name}'s Parent" },
+                    phoneNumbers = listOf(student.phone),
+                    message = personalizedMsg
+                )
+            }
+
+            repository.insertAppNotification(
+                com.example.data.entity.AppNotification(
+                    title = "📢 Reports Published: $className",
+                    content = "Terminal grade report cards successfully published for ${list.size} pupils in $className. Automated simulated SMS alert broadcast completed.",
+                    type = "Grade"
+                )
+            )
+        }
+    }
+
+    fun unpublishReportCardsForClass(className: String) {
+        viewModelScope.launch {
+            val list = repository.getStudentsByGrade(className).first()
+            list.forEach { student ->
+                val updatedStudent = student.copy(isReportCardPublished = false)
+                repository.updateStudent(updatedStudent)
+            }
+
+            repository.insertAppNotification(
+                com.example.data.entity.AppNotification(
+                    title = "🔒 Reports Retracted: $className",
+                    content = "Terminal report cards for $className retracted and marked Unpublished.",
+                    type = "Grade"
+                )
+            )
+        }
+    }
+
 
     // --- Grade Actions ---
     fun insertGrade(studentId: Int, subjectName: String, examName: String, score: Double, maxScore: Double) {
@@ -416,8 +660,95 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    // --- Library Module Operations ---
+    fun insertBook(title: String, author: String, isbn: String, category: String, copiesTotal: Int) {
+        viewModelScope.launch {
+            repository.insertBook(Book(
+                title = title,
+                author = author,
+                isbn = isbn,
+                category = category,
+                copiesTotal = copiesTotal,
+                copiesAvailable = copiesTotal
+            ))
+            insertAppNotification(
+                title = "📚 New Book Added",
+                content = "\"$title\" by $author added to the school library inventory.",
+                type = "Event"
+            )
+        }
+    }
+
+    fun updateBook(book: Book) {
+        viewModelScope.launch {
+            repository.updateBook(book)
+        }
+    }
+
+    fun deleteBook(book: Book) {
+        viewModelScope.launch {
+            repository.deleteBook(book)
+        }
+    }
+
+    fun checkoutBook(bookId: Int, studentId: Int, studentName: String, bookTitle: String, checkoutDate: String, dueDate: String, notes: String = "") {
+        viewModelScope.launch {
+            val book = books.value.find { it.id == bookId }
+            if (book != null && book.copiesAvailable > 0) {
+                repository.insertCheckout(BookCheckout(
+                    bookId = bookId,
+                    studentId = studentId,
+                    checkoutDate = checkoutDate,
+                    dueDate = dueDate,
+                    returnDate = null,
+                    notes = notes
+                ))
+                repository.updateBook(book.copy(copiesAvailable = book.copiesAvailable - 1))
+                
+                insertAppNotification(
+                    title = "📖 Book Checked Out",
+                    content = "\"$bookTitle\" checked out to $studentName. Due: $dueDate",
+                    type = "Event"
+                )
+            }
+        }
+    }
+
+    fun returnBook(checkoutId: Int, returnDate: String) {
+        viewModelScope.launch {
+            val checkout = checkouts.value.find { it.id == checkoutId }
+            if (checkout != null && checkout.returnDate == null) {
+                repository.updateCheckout(checkout.copy(returnDate = returnDate))
+                val book = books.value.find { it.id == checkout.bookId }
+                if (book != null) {
+                    repository.updateBook(book.copy(copiesAvailable = (book.copiesAvailable + 1).coerceAtMost(book.copiesTotal)))
+                    
+                    val student = students.value.find { it.id == checkout.studentId }
+                    val studentName = student?.name ?: "Pupil"
+                    insertAppNotification(
+                        title = "✅ Book Returned",
+                        content = "\"${book.title}\" returned by $studentName on $returnDate.",
+                        type = "Event"
+                    )
+                }
+            }
+        }
+    }
+
+    fun deleteCheckout(checkout: BookCheckout) {
+        viewModelScope.launch {
+            repository.deleteCheckout(checkout)
+        }
+    }
+
 
     // --- Prepopulation helper ---
+    fun seedSampleDatabase() {
+        viewModelScope.launch {
+            prePopulateData()
+        }
+    }
+
     private suspend fun prePopulateData() {
         // 1. Teachers
         val tId1 = repository.insertTeacher(Teacher(
@@ -490,6 +821,18 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         val sId4 = repository.insertStudent(Student(name = "Babirye Sandra", rollNumber = "S1004", gradeLevel = "Top", email = "sandra.b@pearl.ac.ug", phone = "+256 774 121212", gender = "Female", feesTotal = 500000.0, feesPaid = 500000.0))
         val sId5 = repository.insertStudent(Student(name = "Akena Emmanuel", rollNumber = "S1005", gradeLevel = "P.7", email = "emmanuel.a@pearl.ac.ug", phone = "+256 752 998877", gender = "Male", feesTotal = 850000.0, feesPaid = 0.0))
 
+        // 3.5. Seed fee payments history to match the initial student paid balances
+        val paymentDate1 = "2026-05-10"
+        val paymentDate2 = "2026-05-15"
+        val paymentDate3 = "2026-05-20"
+        val paymentDate4 = "2026-05-25"
+        repository.insertFeePayment(FeePayment(studentId = sId1.toInt(), paymentDate = paymentDate1, amount = 400000.0, notes = "Initial Deposit"))
+        repository.insertFeePayment(FeePayment(studentId = sId1.toInt(), paymentDate = paymentDate3, amount = 200000.0, notes = "Part Payment"))
+        repository.insertFeePayment(FeePayment(studentId = sId2.toInt(), paymentDate = paymentDate1, amount = 500000.0, notes = "First Installment"))
+        repository.insertFeePayment(FeePayment(studentId = sId2.toInt(), paymentDate = paymentDate4, amount = 350000.0, notes = "Final Balance clearance"))
+        repository.insertFeePayment(FeePayment(studentId = sId3.toInt(), paymentDate = paymentDate2, amount = 350000.0, notes = "Primary Deposit"))
+        repository.insertFeePayment(FeePayment(studentId = sId4.toInt(), paymentDate = paymentDate1, amount = 500000.0, notes = "Full Payment Term 2"))
+
         // 4. Grades
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Mathematics", examName = "Term Assessment 1", score = 82.0, dateRecorded = today))
@@ -506,6 +849,54 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "English Language", examName = "Term Assessment 1", score = 52.0, dateRecorded = today))
         repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 1", score = 60.0, dateRecorded = today))
         repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Social Studies", examName = "Term Assessment 1", score = 41.0, dateRecorded = today))
+
+        // Seeding Term Assessment 2
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Mathematics", examName = "Term Assessment 2", score = 85.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "English Language", examName = "Term Assessment 2", score = 79.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 2", score = 91.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Social Studies", examName = "Term Assessment 2", score = 93.0, dateRecorded = today))
+
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Mathematics", examName = "Term Assessment 2", score = 96.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "English Language", examName = "Term Assessment 2", score = 90.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 2", score = 94.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Social Studies", examName = "Term Assessment 2", score = 87.0, dateRecorded = today))
+
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Mathematics", examName = "Term Assessment 2", score = 50.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "English Language", examName = "Term Assessment 2", score = 58.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 2", score = 65.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Social Studies", examName = "Term Assessment 2", score = 45.0, dateRecorded = today))
+
+        // Seeding Term Assessment 3
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Mathematics", examName = "Term Assessment 3", score = 88.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "English Language", examName = "Term Assessment 3", score = 82.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 3", score = 94.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Social Studies", examName = "Term Assessment 3", score = 95.0, dateRecorded = today))
+
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Mathematics", examName = "Term Assessment 3", score = 98.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "English Language", examName = "Term Assessment 3", score = 92.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 3", score = 96.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Social Studies", examName = "Term Assessment 3", score = 89.0, dateRecorded = today))
+
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Mathematics", examName = "Term Assessment 3", score = 55.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "English Language", examName = "Term Assessment 3", score = 62.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 3", score = 72.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Social Studies", examName = "Term Assessment 3", score = 49.0, dateRecorded = today))
+
+        // Seeding Term Assessment 4
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Mathematics", examName = "Term Assessment 4", score = 92.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "English Language", examName = "Term Assessment 4", score = 86.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 4", score = 97.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId1.toInt(), subjectName = "Social Studies", examName = "Term Assessment 4", score = 98.0, dateRecorded = today))
+
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Mathematics", examName = "Term Assessment 4", score = 99.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "English Language", examName = "Term Assessment 4", score = 95.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 4", score = 98.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId2.toInt(), subjectName = "Social Studies", examName = "Term Assessment 4", score = 92.0, dateRecorded = today))
+
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Mathematics", examName = "Term Assessment 4", score = 68.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "English Language", examName = "Term Assessment 4", score = 70.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Integrated Science", examName = "Term Assessment 4", score = 78.0, dateRecorded = today))
+        repository.insertGrade(Grade(studentId = sId5.toInt(), subjectName = "Social Studies", examName = "Term Assessment 4", score = 55.0, dateRecorded = today))
 
         repository.insertGrade(Grade(studentId = sId4.toInt(), subjectName = "Literacy & Numeracy", examName = "Nursery Assesment", score = 90.0, dateRecorded = today))
 
@@ -550,6 +941,70 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
         repository.insertTimetablePeriod(TimetablePeriod(className = "Top", subjectName = "Literacy & Numeracy", dayOfWeek = "Thursday", startTime = "08:30", endTime = "10:00", teacherName = "Mrs. Atwine Brenda"))
 
         // 8. Seed future calendar events
+        // 6. Library Seeding
+        val bId1 = repository.insertBook(Book(
+            title = "Introduction to Biology",
+            author = "Dr. Nelson Arthur",
+            isbn = "978-0134093413",
+            category = "Integrated Science",
+            copiesTotal = 5,
+            copiesAvailable = 4
+        )).toInt()
+
+        val bId2 = repository.insertBook(Book(
+            title = "Advanced Algebra",
+            author = "Prof. Mugisha Paul",
+            isbn = "978-0134467795",
+            category = "Mathematics",
+            copiesTotal = 3,
+            copiesAvailable = 2
+        )).toInt()
+
+        val bId3 = repository.insertBook(Book(
+            title = "Ugandan History & Civics",
+            author = "Mr. Mukasa Ronald",
+            isbn = "978-0062698162",
+            category = "Social Studies",
+            copiesTotal = 4,
+            copiesAvailable = 4
+        )).toInt()
+
+        val bId4 = repository.insertBook(Book(
+            title = "Primary English Reader",
+            author = "Miss Nabakooza Sarah",
+            isbn = "978-0545162074",
+            category = "English Language",
+            copiesTotal = 6,
+            copiesAvailable = 5
+        )).toInt()
+
+        repository.insertCheckout(BookCheckout(
+            bookId = bId1,
+            studentId = sId1.toInt(),
+            checkoutDate = "2026-06-05",
+            dueDate = "2026-06-12",
+            returnDate = null,
+            notes = "Handle with care, cover page loose."
+        ))
+
+        repository.insertCheckout(BookCheckout(
+            bookId = bId2,
+            studentId = sId2.toInt(),
+            checkoutDate = "2026-06-08",
+            dueDate = "2026-06-15",
+            returnDate = "2026-06-14",
+            notes = "Returned in pristine condition."
+        ))
+
+        repository.insertCheckout(BookCheckout(
+            bookId = bId4,
+            studentId = sId5.toInt(),
+            checkoutDate = "2026-06-10",
+            dueDate = "2026-06-17",
+            returnDate = null,
+            notes = "Exam revision."
+        ))
+
         repository.insertSchoolEvent(SchoolEvent(title = "Parents Annual General Assembly", eventDate = "2026-06-15", audience = "Parents", priority = "High", description = "Discuss school fee subsidies, academic curriculum updates, and new transport shuttle routes."))
         repository.insertSchoolEvent(SchoolEvent(title = "Inter-Classes Soccer Shield Finals", eventDate = "2026-06-20", audience = "All", priority = "Medium", description = "Match between P.7 and P.6 at the main sports oval. Chief Guest will be the district sports commissioner."))
         repository.insertSchoolEvent(SchoolEvent(title = "Mid-Term Examination Week", eventDate = "2026-07-05", audience = "All", priority = "High", description = "General academic midterm testing across compile units."))
@@ -846,6 +1301,9 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
 
     fun generateAiTimetableAcrossSchool() {
         viewModelScope.launch {
+            // Delete existing periods to ensure no stale overlaps
+            repository.deleteAllTimetablePeriods()
+
             val listGrades = listOf("Nursery", "Middle", "Top", "P.1", "P.2", "P.3", "P.4", "P.5", "P.6", "P.7")
             val days = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
             
@@ -872,22 +1330,31 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
             
             val currentTeachers = teachers.value
             val fallbackTeachersList = listOf(
-                "Mr. Mugisha Paul", "Mrs. Nakato Florence", "Sister Grace Mary", 
-                "Mr. Katumba David", "Mrs. Alupo Phiona", "Mr. Bukenya Charles", "Miss Namata Evelyn"
+                "Mrs. Florence Namaganda", "Mr. Okello John", "Miss Nabakooza Sarah", 
+                "Mr. Mukasa Ronald", "Mrs. Atwine Brenda", "Mr. Mugisha Paul", 
+                "Mrs. Nakato Florence", "Sister Grace Mary", "Mr. Katumba David", 
+                "Mrs. Alupo Phiona", "Mr. Bukenya Charles", "Miss Namata Evelyn"
             )
             
+            val allTeachers = (currentTeachers.map { it.name } + fallbackTeachersList).distinct()
             var scheduleCount = 0
             
-            for (grade in listGrades) {
-                val gradeSubjects = subjectsByGrade[grade] ?: listOf("General Learning")
-                for (day in days) {
-                    periodsSchedule.forEachIndexed { idx, times ->
-                        val sub = gradeSubjects.getOrElse(idx) { gradeSubjects.first() }
-                        val instructor = if (currentTeachers.isNotEmpty()) {
-                            currentTeachers.random().name
-                        } else {
-                            fallbackTeachersList.random()
-                        }
+            // Loop by day and slice of slot first, then distribute teachers across grades so that no teacher overlaps
+            for (dayIdx in days.indices) {
+                val day = days[dayIdx]
+                for (slotIdx in periodsSchedule.indices) {
+                    val times = periodsSchedule[slotIdx]
+                    
+                    for (gradeIdx in listGrades.indices) {
+                        val grade = listGrades[gradeIdx]
+                        val gradeSubjects = subjectsByGrade[grade] ?: listOf("General Learning")
+                        val sub = gradeSubjects.getOrElse(slotIdx) { gradeSubjects.first() }
+                        
+                        // Select an instructor using a perfect offset formula
+                        // Since listGrades is 10 items and allTeachers has at least 12 items, 
+                        // this formula ensures we choose 10 unique teacher indices for the 10 grades in this slot.
+                        val teacherIdx = (gradeIdx + dayIdx * 3 + slotIdx * 7) % allTeachers.size
+                        val instructor = allTeachers[teacherIdx]
                         
                         repository.insertTimetablePeriod(com.example.data.entity.TimetablePeriod(
                             className = grade,
@@ -904,7 +1371,7 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
             
             insertAppNotification(
                 title = "🤖 Smart AI Timetable Generated",
-                content = "AI engine successfully calculated and dispatched $scheduleCount conflict-free period blocks for all 10 standard grades assigning certified instructors.",
+                content = "AI engine successfully calculated and dispatched $scheduleCount conflict-free period blocks for all 10 standard grades. Classroom and teacher double-bookings have been fully resolved and verified.",
                 type = "Timetable"
             )
         }

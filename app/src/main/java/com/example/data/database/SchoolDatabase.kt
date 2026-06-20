@@ -20,9 +20,12 @@ import com.example.data.entity.*
         TimetablePeriod::class,
         SchoolEvent::class,
         AppNotification::class,
-        LessonTrack::class
+        LessonTrack::class,
+        FeePayment::class,
+        Book::class,
+        BookCheckout::class
     ],
-    version = 5,
+    version = 10,
     exportSchema = false
 )
 abstract class SchoolDatabase : RoomDatabase() {
